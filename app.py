@@ -97,12 +97,21 @@ def get_gsheet_client():
 def get_worksheet():
     client = get_gsheet_client()
     sh = client.open_by_key(SHEET_ID)
-    ws = sh.sheet1
+    try:
+        ws = sh.worksheet("Página1")
+    except:
+        try:
+            ws = sh.worksheet("Sheet1")
+        except:
+            ws = sh.sheet1
     # Garante cabeçalho na primeira vez
-    first = ws.acell('A1').value
-    if not first or first != 'ID':
-        ws.clear()
-        ws.append_row(COLS_JUST)
+    try:
+        first = ws.acell('A1').value
+        if not first or first != 'ID':
+            ws.clear()
+            ws.append_row(COLS_JUST)
+    except:
+        pass
     return ws
 
 def load_justificativas():
