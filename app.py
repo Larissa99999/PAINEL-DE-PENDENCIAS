@@ -309,6 +309,21 @@ with st.sidebar:
     else:
         sel_filial = "Todas"
 
+    # Filtro por vencimento
+    st.markdown("#### 📅 Vencimento")
+    if 'Vencimento' in df.columns:
+        venc_min = df['Vencimento'].min()
+        venc_max = df['Vencimento'].max()
+        if pd.notna(venc_min) and pd.notna(venc_max):
+            data_de = st.date_input("De", value=venc_min.date(), key="venc_de")
+            data_ate = st.date_input("Até", value=venc_max.date(), key="venc_ate")
+        else:
+            data_de = None
+            data_ate = None
+    else:
+        data_de = None
+        data_ate = None
+
     df_filtered = df.copy()
     if sel_comprador != "Todos":
         df_filtered = df_filtered[df_filtered['Comprador'] == sel_comprador]
@@ -318,6 +333,11 @@ with st.sidebar:
         df_filtered = df_filtered[df_filtered['Status'] == sel_status]
     if sel_filial != "Todas" and 'Filial' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['Filial'].astype(str) == sel_filial]
+    if data_de and data_ate and 'Vencimento' in df_filtered.columns:
+        df_filtered = df_filtered[
+            (df_filtered['Vencimento'].dt.date >= data_de) &
+            (df_filtered['Vencimento'].dt.date <= data_ate)
+        ]
 
     st.markdown("---")
     st.markdown(f"**Exibindo:** {len(df_filtered)} de {len(df)} itens")
@@ -389,40 +409,92 @@ PLOT_LAYOUT = dict(
 
 st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante</div>', unsafe_allow_html=True)
 
-# Linha 1: Qtd por Solicitante | Valor por Comprador
+agora_kpi = pd.Timestamp.now().normalize()
+
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
-    if 'Solicitante' in df_filtered.columns:
-        df_sol = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','']))].groupby('Solicitante').size().reset_index(name='Qtd').sort_values('Qtd', ascending=False)
+    if 'Solicitante' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
+        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','']))]
+        df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
+        df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
+        df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
+        df_sol['Vencidos'] = df_sol['Vencidos'].astype(int)
+        df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(1)
+        df_sol = df_sol.sort_values('Qtd', ascending=False)
         if len(df_sol) > 0:
             fig1 = go.Figure()
             fig1.add_trace(go.Bar(
                 x=df_sol['Solicitante'], y=df_sol['Qtd'],
+                name='Total Pendentes',
                 marker=dict(color=COLORS[4], cornerradius=6),
-                text=df_sol['Qtd'], textposition='auto', textfont=dict(size=13, color="white")
+                text=df_sol['Qtd'], textposition='outside',
+                textfont=dict(size=12, color='white'),
+                yaxis='y1'
             ))
-            fig1.update_layout(**PLOT_LAYOUT, title="👤 Qtd Pendências por Solicitante", height=380,
+            fig1.add_trace(go.Scatter(
+                x=df_sol['Solicitante'], y=df_sol['Pct_Vencido'],
+                name='% Vencidos',
+                mode='lines+markers+text',
+                line=dict(color='#ff4d6a', width=2.5),
+                marker=dict(size=8, color='#ff4d6a', symbol='diamond'),
+                text=[f"{v:.0f}%" for v in df_sol['Pct_Vencido']],
+                textposition='top center',
+                textfont=dict(size=11, color='#ff4d6a'),
+                yaxis='y2'
+            ))
+            fig1.update_layout(**PLOT_LAYOUT,
+                title="👤 Qtd Pendências por Solicitante + % Vencidos",
+                height=400,
                 xaxis=dict(showgrid=False, tickangle=-30),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
+                yaxis=dict(title='Qtd', showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                yaxis2=dict(title='% Vencidos', overlaying='y', side='right',
+                           range=[0, 110], showgrid=False,
+                           ticksuffix='%', tickfont=dict(color='#ff4d6a')),
+                legend=dict(orientation='h', y=1.12)
+            )
             st.plotly_chart(fig1, use_container_width=True)
 
 with col_g2:
-    if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns:
-        df_comp = df_filtered[df_filtered['Comprador'].notna() & (df_filtered['Comprador'] != '—')].groupby('Comprador').agg(
-            Valor=('Valor','sum')
-        ).reset_index().sort_values('Valor', ascending=True)
+    if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
+        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','']))]
+        df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
+        df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
+        df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
+        df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(1)
+        df_comp = df_comp.sort_values('Valor', ascending=True)
         if len(df_comp) > 0:
             fig2 = go.Figure()
             fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'], x=df_comp['Valor'], orientation='h',
+                y=df_comp['Comprador'], x=df_comp['Valor'],
+                name='Valor Total',
+                orientation='h',
                 marker=dict(color=COLORS[2], cornerradius=6),
                 text=df_comp['Valor'].apply(lambda v: format_brl(v)),
-                textposition='auto', textfont=dict(size=11)
+                textposition='auto', textfont=dict(size=11),
+                xaxis='x1'
             ))
-            fig2.update_layout(**PLOT_LAYOUT, title="💰 Valor Total por Comprador", height=380,
-                xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
-                yaxis=dict(showgrid=False))
+            fig2.add_trace(go.Scatter(
+                y=df_comp['Comprador'], x=df_comp['Pct_Vencido'],
+                name='% Valor Vencido',
+                mode='markers+text',
+                marker=dict(size=12, color='#ff4d6a', symbol='diamond',
+                           line=dict(width=1.5, color='white')),
+                text=[f"{v:.0f}%" for v in df_comp['Pct_Vencido']],
+                textposition='middle right',
+                textfont=dict(size=11, color='#ff4d6a'),
+                xaxis='x2'
+            ))
+            fig2.update_layout(**PLOT_LAYOUT,
+                title="💰 Valor por Comprador + % Valor Vencido",
+                height=400,
+                xaxis=dict(title='Valor (R$)', showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                xaxis2=dict(title='% Vencido', overlaying='x', side='top',
+                           range=[0, 130], showgrid=False,
+                           ticksuffix='%', tickfont=dict(color='#ff4d6a')),
+                yaxis=dict(showgrid=False),
+                legend=dict(orientation='h', y=1.12)
+            )
             st.plotly_chart(fig2, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════
