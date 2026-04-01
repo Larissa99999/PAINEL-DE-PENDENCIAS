@@ -444,6 +444,14 @@ with r2c4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+COLORS = ["#4dabf7","#ff8c42","#51cf66","#ff4d6a","#b197fc","#ffd43b","#20c997","#f06595"]
+PLOT_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="DM Sans", color="#c9d1d9"),
+    margin=dict(l=20, r=20, t=40, b=20),
+    legend=dict(bgcolor="rgba(0,0,0,0)")
+)
+
 # ══════════════════════════════════════════════════════════════════════
 # KPIs + PAINEL: NOTAS PENDENTES DE LANÇAMENTO (SF1)
 # ══════════════════════════════════════════════════════════════════════
@@ -553,13 +561,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════
 # GRÁFICOS
 # ══════════════════════════════════════════════════════════════════════
-COLORS = ["#4dabf7","#ff8c42","#51cf66","#ff4d6a","#b197fc","#ffd43b","#20c997","#f06595"]
-PLOT_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="DM Sans", color="#c9d1d9"),
-    margin=dict(l=20, r=20, t=40, b=20),
-    legend=dict(bgcolor="rgba(0,0,0,0)")
-)
+
 
 st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante</div>', unsafe_allow_html=True)
 
@@ -771,3 +773,4 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
+
