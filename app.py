@@ -512,49 +512,31 @@ if 'Status' in df_filtered.columns:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Detalhe por Comprador
-        if 'Comprador' in df_sf1.columns:
-            col_sf1, col_sf2 = st.columns(2)
-            with col_sf1:
-                df_sf_comp = df_sf1.copy()
-                df_sf_comp['Tipo'] = tem_pc.map({True: 'Com PC', False: 'Sem PC 🚨'})
-                df_sf_grp = df_sf_comp.groupby(['Comprador','Tipo']).size().reset_index(name='Qtd')
-                df_sf_grp = df_sf_grp[df_sf_grp['Comprador'].notna() & (~df_sf_grp['Comprador'].isin(['—','']))]
-                if len(df_sf_grp) > 0:
-                    fig_sf = go.Figure()
-                    for tipo, cor in [('Sem PC 🚨','#ff4d6a'), ('Com PC','#b197fc')]:
-                        df_t = df_sf_grp[df_sf_grp['Tipo']==tipo]
-                        if len(df_t) > 0:
-                            fig_sf.add_trace(go.Bar(
-                                x=df_t['Comprador'], y=df_t['Qtd'],
-                                name=tipo, marker=dict(color=cor),
-                                text=df_t['Qtd'], textposition='inside',
-                                textfont=dict(size=12, color='white')
-                            ))
-                    fig_sf.update_layout(**PLOT_LAYOUT)
-                    fig_sf.update_layout(
-                        barmode='stack',
-                        title='📊 SF1 Pendente por Comprador',
-                        height=340,
-                        xaxis=dict(showgrid=False, tickangle=-30),
-                        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                        legend=dict(orientation='h', y=-0.3, font=dict(size=11))
-                    )
-                    st.plotly_chart(fig_sf, use_container_width=True)
+        # Tabela 1: Sem PC — mais crítica
+        st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
+        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Chave Sefaz','Filial','Nº PC'] if c in df_sem_pc.columns]
+        if len(df_sem_pc) > 0 and len(cols_sem_pc) > 0:
+            st.dataframe(
+                df_sem_pc[cols_sem_pc].sort_values('Valor', ascending=False).style
+                    .set_properties(**{'background-color': 'rgba(255,77,106,0.12)'})
+                    .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}),
+                use_container_width=True, height=350
+            )
+        else:
+            st.success('✅ Nenhuma nota sem PC encontrada!')
 
-            with col_sf2:
-                # Tabela dos sem PC (mais críticos) em destaque
-                st.markdown("<div style='font-size:0.9rem;color:#ff4d6a;font-weight:700;margin-bottom:8px'>🚨 Detalhe — Notas Sem PC (mais críticas)</div>", unsafe_allow_html=True)
-                cols_sf = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Filial'] if c in df_sem_pc.columns]
-                if len(cols_sf) > 0 and len(df_sem_pc) > 0:
-                    st.dataframe(
-                        df_sem_pc[cols_sf].sort_values('Valor', ascending=False).style.format(
-                            {'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}
-                        ).set_properties(**{'background-color': 'rgba(255,77,106,0.08)'}),
-                        use_container_width=True, height=300
-                    )
-                else:
-                    st.info('Nenhuma nota sem PC encontrada.')
+        # Tabela 2: Com PC mas sem lançamento
+        st.markdown('<div class="section-title">📋 Notas Com PC e Sem Lançamento — Atenção</div>', unsafe_allow_html=True)
+        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Chave Sefaz','Filial','Nº PC'] if c in df_com_pc.columns]
+        if len(df_com_pc) > 0 and len(cols_com_pc) > 0:
+            st.dataframe(
+                df_com_pc[cols_com_pc].sort_values('Valor', ascending=False).style
+                    .set_properties(**{'background-color': 'rgba(177,151,252,0.08)'})
+                    .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}),
+                use_container_width=True, height=350
+            )
+        else:
+            st.success('✅ Nenhuma nota com PC pendente encontrada!')
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -773,4 +755,3 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
-
