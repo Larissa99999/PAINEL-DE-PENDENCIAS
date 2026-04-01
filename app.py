@@ -141,6 +141,73 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="")
 
 
 
+def parse_valor(v):
+    if pd.isna(v) or str(v).strip() in ["", "—", "-"]:
+        return 0.0
+    s = str(v).replace("R$", "").replace("r$", "").strip()
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except:
+        return 0.0
+
+def load_data(file):
+    df_raw = pd.read_excel(file, header=None, dtype=object)
+    df_raw = df_raw.map(lambda x: str(x) if not (isinstance(x, float) and pd.isna(x)) else "")
+    header_row = None
+    for i in range(min(10, len(df_raw))):
+        row_values = df_raw.iloc[i].tolist()
+        row_text = " ".join([str(v).lower() for v in row_values if v is not None])
+        if "fornecedor" in row_text and "comprador" in row_text:
+            header_row = i
+            break
+        elif "fornecedor" in row_text or "comprador" in row_text:
+            header_row = i
+            break
+    if header_row is not None:
+        new_headers = df_raw.iloc[header_row].tolist()
+        df = df_raw.iloc[header_row + 1:].reset_index(drop=True)
+        df.columns = [str(c).strip() if c not in ("", "nan") else f"Col_{i}" for i, c in enumerate(new_headers)]
+    else:
+        df = pd.read_excel(file, dtype=str)
+        df = df.map(lambda x: str(x) if not (isinstance(x, float) and pd.isna(x)) else "")
+    df.columns = [str(c).strip() for c in df.columns]
+    col_map = {}
+    for c in df.columns:
+        cl = c.strip().lower()
+        if cl == "tipo": col_map[c] = "Tipo"
+        elif "fornecedor" in cl: col_map[c] = "Fornecedor"
+        elif "valor" in cl: col_map[c] = "Valor"
+        elif "vencimento" in cl: col_map[c] = "Vencimento"
+        elif "comprador" in cl: col_map[c] = "Comprador"
+        elif "solicitante" in cl: col_map[c] = "Solicitante"
+        elif "status sf" in cl: col_map[c] = "Status"
+        elif cl == "status manual": col_map[c] = "Status Manual"
+        elif "filial" in cl: col_map[c] = "Filial"
+        elif cl == "dias": col_map[c] = "Dias"
+        elif "pc" in cl and ("nº" in cl or "n°" in cl or "num" in cl or cl.startswith("nº")): col_map[c] = "Nº PC"
+        elif cl == "nº pc" or cl == "n° pc": col_map[c] = "Nº PC"
+        elif "controle" in cl: col_map[c] = "Controle"
+        elif "entrega" in cl: col_map[c] = "Dt Entrega PC"
+        elif "emiss" in cl: col_map[c] = "Dt Emissão"
+        elif "chave" in cl: col_map[c] = "Chave Sefaz"
+        elif "nota" in cl and "nº" in cl.lower(): col_map[c] = "Nº Nota"
+    df = df.rename(columns=col_map)
+    if "Valor" in df.columns:
+        df["Valor"] = df["Valor"].apply(parse_valor)
+    if "Vencimento" in df.columns:
+        df["Vencimento"] = pd.to_datetime(df["Vencimento"], dayfirst=True, errors="coerce")
+    if "Dias" in df.columns:
+        df["Dias"] = pd.to_numeric(df["Dias"].replace("—", ""), errors="coerce").fillna(0).astype(int)
+    key_cols = [c for c in ["Fornecedor", "Comprador", "Valor"] if c in df.columns]
+    if key_cols:
+        df = df.dropna(subset=key_cols, how="all").reset_index(drop=True)
+    df["ID"] = df.index.astype(str)
+    return df
+
 def format_brl(valor):
     return f"R$ {valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
 
@@ -541,5 +608,3 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
-
-
