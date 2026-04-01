@@ -65,7 +65,6 @@ st.markdown("""
 # FUNÇÕES AUXILIARES
 # ══════════════════════════════════════════════════════════════════════
 import gspread
-from google.oauth2.service_account import Credentials
 
 OPCOES_JUSTIFICATIVA = [
     "— Selecione —",
@@ -86,13 +85,12 @@ COLS_JUST = ["ID", "Justificativa", "Observacao", "Prazo_Resolucao", "Data_Preen
 
 @st.cache_resource
 def get_gsheet_client():
+    creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    return gspread.service_account_from_dict(creds_dict, scopes=scopes)
 
 def get_worksheet():
     client = get_gsheet_client()
