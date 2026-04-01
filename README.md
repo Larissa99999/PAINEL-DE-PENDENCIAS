@@ -1,1 +1,6 @@
-# PAINEL-DE-PENDENCIAS
+streamlit
+pandas
+plotly
+openpyxl
+gspread
+google-auth
