@@ -467,50 +467,7 @@ if 'Status' in df_filtered.columns:
     valor_sem_pc = df_sem_pc['Valor'].sum() if 'Valor' in df_sem_pc.columns else 0
 
     if qtd_sf1 > 0:
-        st.markdown("""<style>
-        .alert-card {
-            background: linear-gradient(135deg, #2a0e0e 0%, #3a1010 100%);
-            border: 2px solid #ff4d6a;
-            border-radius: 16px; padding: 28px 20px;
-            text-align: center; box-shadow: 0 0 18px rgba(255,77,106,0.25);
-        }
-        .alert-card .label { font-size: 0.72rem; color: #f08090; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
-        .alert-card .value { font-size: 2.8rem; font-weight: 700; color: #ff4d6a; line-height: 1.15; margin: 6px 0 2px 0; }
-        .alert-card .sub { font-size: 0.78rem; color: #f08090; }
-        .warn-card {
-            background: linear-gradient(135deg, #1e1620 0%, #261c2e 100%);
-            border: 1.5px solid #b197fc;
-            border-radius: 16px; padding: 28px 20px;
-            text-align: center;
-        }
-        .warn-card .label { font-size: 0.72rem; color: #c9b8fc; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
-        .warn-card .value { font-size: 2.4rem; font-weight: 700; color: #b197fc; line-height: 1.15; margin: 6px 0 2px 0; }
-        .warn-card .sub { font-size: 0.78rem; color: #c9b8fc; }
-        </style>""", unsafe_allow_html=True)
-
         st.markdown('<div class="section-title">⚠️ Notas Pendentes de Lançamento (SF1)</div>', unsafe_allow_html=True)
-
-        sf_c1, sf_c2, sf_c3 = st.columns([1.2, 1, 1])
-        with sf_c1:
-            st.markdown(f"""<div class="alert-card">
-                <div class="label">🚨 Sem PC — Crítico</div>
-                <div class="value">{qtd_sem_pc}</div>
-                <div class="sub">Notas sem PC e sem lançamento<br>{format_brl(valor_sem_pc)} em risco</div>
-            </div>""", unsafe_allow_html=True)
-        with sf_c2:
-            st.markdown(f"""<div class="warn-card">
-                <div class="label">📋 Com PC — Atenção</div>
-                <div class="value">{qtd_com_pc}</div>
-                <div class="sub">Notas com PC sem lançamento<br>{format_brl(df_com_pc['Valor'].sum() if 'Valor' in df_com_pc.columns else 0)}</div>
-            </div>""", unsafe_allow_html=True)
-        with sf_c3:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">Total SF1 Pendente</div>
-                <div class="metric-value color-orange">{qtd_sf1}</div>
-                <div style="font-size:0.78rem;color:#8892a4;margin-top:4px">{format_brl(valor_sf1)} no total</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
 
         # Tabela 1: Sem PC — mais crítica
         st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
@@ -755,3 +712,4 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
+
