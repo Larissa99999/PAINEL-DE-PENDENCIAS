@@ -379,47 +379,67 @@ just_df = load_justificativas()
 com_justificativa = len(df_filtered[df_filtered['ID'].isin(just_df['ID'])])
 sem_justificativa = total_itens - com_justificativa
 pct_just = int(com_justificativa / total_itens * 100) if total_itens > 0 else 0
+pct_vencidos = int(vencidas / total_itens * 100) if total_itens > 0 else 0
 
-c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-with c1:
+# ── Linha 1: os 3 mais críticos em destaque ──
+st.markdown("""<style>
+.big-card {
+    background: linear-gradient(135deg, #1a1f2e 0%, #252b3b 100%);
+    border-radius: 16px; padding: 28px 20px;
+    border: 1px solid rgba(255,255,255,0.06);
+    text-align: center;
+}
+.big-card .label { font-size: 0.75rem; color: #8892a4; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+.big-card .value { font-size: 2.6rem; font-weight: 700; line-height: 1.15; margin: 6px 0 2px 0; }
+.big-card .sub { font-size: 0.78rem; color: #8892a4; }
+.big-card.critical { border: 1.5px solid rgba(255,77,106,0.4); background: linear-gradient(135deg, #2a1520 0%, #2e1a26 100%); }
+.big-card.warning { border: 1.5px solid rgba(177,151,252,0.35); background: linear-gradient(135deg, #1e1a2e 0%, #231f35 100%); }
+</style>""", unsafe_allow_html=True)
+
+r1c1, r1c2, r1c3 = st.columns(3)
+with r1c1:
+    st.markdown(f"""<div class="big-card critical">
+        <div class="label">🚨 Processos Vencidos</div>
+        <div class="value" style="color:#ff4d6a">{vencidas} <span style="font-size:1.1rem">({pct_vencidos}%)</span></div>
+        <div class="sub">Valor: {format_brl(valor_vencido)} &nbsp;|&nbsp; Maior atraso: {maior_atraso_kpi} dias</div>
+    </div>""", unsafe_allow_html=True)
+with r1c2:
+    st.markdown(f"""<div class="big-card warning">
+        <div class="label">📦 Prazo de Entrega Encerrado</div>
+        <div class="value" style="color:#b197fc">{entrega_enc}</div>
+        <div class="sub">de {total_itens} pendências no filtro atual</div>
+    </div>""", unsafe_allow_html=True)
+with r1c3:
+    cor_just = '#ff4d6a' if pct_just < 30 else '#ff8c42' if pct_just < 60 else '#51cf66'
+    st.markdown(f"""<div class="big-card">
+        <div class="label">✅ Justificativas Preenchidas</div>
+        <div class="value" style="color:{cor_just}">{pct_just}%</div>
+        <div class="sub">{com_justificativa} de {total_itens} &nbsp;|&nbsp; {sem_justificativa} sem justificativa</div>
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Linha 2: resumo geral ──
+r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+with r2c1:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Total Pendências</div>
+        <div class="metric-label">Total de Pendências</div>
         <div class="metric-value color-blue">{total_itens}</div>
     </div>""", unsafe_allow_html=True)
-with c2:
+with r2c2:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Total</div>
         <div class="metric-value color-green">{format_brl(total_valor)}</div>
     </div>""", unsafe_allow_html=True)
-with c3:
+with r2c3:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">🚨 Vencidos</div>
-        <div class="metric-value color-red">{vencidas}</div>
-    </div>""", unsafe_allow_html=True)
-with c4:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">💸 Valor Vencido</div>
+        <div class="metric-label">Valor Vencido</div>
         <div class="metric-value color-red">{format_brl(valor_vencido)}</div>
     </div>""", unsafe_allow_html=True)
-with c5:
+with r2c4:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">📆 Maior Atraso</div>
-        <div class="metric-value color-orange">{maior_atraso_kpi}d</div>
-    </div>""", unsafe_allow_html=True)
-with c6:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">📦 Entrega Enc.</div>
-        <div class="metric-value color-purple">{entrega_enc}</div>
-    </div>""", unsafe_allow_html=True)
-with c7:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">✅ Com Justificativa</div>
-        <div class="metric-value color-green">{com_justificativa}</div>
-    </div>""", unsafe_allow_html=True)
-with c8:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">% Justificado</div>
-        <div class="metric-value color-{'green' if pct_just >= 50 else 'orange'}">{pct_just}%</div>
+        <div class="metric-label">Sem Justificativa</div>
+        <div class="metric-value color-orange">{sem_justificativa}</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
