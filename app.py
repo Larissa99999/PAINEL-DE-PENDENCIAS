@@ -439,7 +439,8 @@ with col_g1:
                 textposition='inside',
                 textfont=dict(size=11, color='white', family='DM Sans')
             ))
-            fig1.update_layout(**PLOT_LAYOUT,
+            fig1.update_layout(**PLOT_LAYOUT)
+            fig1.update_layout(
                 barmode='stack',
                 title="👤 Pendências por Solicitante — No Prazo vs Vencidos",
                 height=400,
@@ -476,7 +477,8 @@ with col_g2:
                 textposition='inside',
                 textfont=dict(size=10, color='white')
             ))
-            fig2.update_layout(**PLOT_LAYOUT,
+            fig2.update_layout(**PLOT_LAYOUT)
+            fig2.update_layout(
                 barmode='stack',
                 title="💰 Valor por Comprador — No Prazo vs Vencido",
                 height=400,
@@ -553,7 +555,8 @@ if 'Vencimento' in df_filtered.columns:
                             "Atraso médio: %{customdata[1]:.0f} dias<extra></extra>"
                         )
                     ))
-                    fig_cv.update_layout(**PLOT_LAYOUT,
+                    fig_cv.update_layout(**PLOT_LAYOUT)
+                    fig_cv.update_layout(
                         title="🔴 Processos Vencidos por Comprador",
                         height=380,
                         xaxis=dict(showgrid=False, tickangle=-30),
@@ -589,7 +592,8 @@ if 'Vencimento' in df_filtered.columns:
                             "Atraso médio: %{customdata[1]:.0f} dias<extra></extra>"
                         )
                     ))
-                    fig_sv.update_layout(**PLOT_LAYOUT,
+                    fig_sv.update_layout(**PLOT_LAYOUT)
+                    fig_sv.update_layout(
                         title="🟠 Processos Vencidos por Solicitante",
                         height=380,
                         xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Qtd Vencidos"),
