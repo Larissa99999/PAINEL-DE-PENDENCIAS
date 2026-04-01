@@ -445,6 +445,112 @@ with r2c4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
+# KPIs + PAINEL: NOTAS PENDENTES DE LANÇAMENTO (SF1)
+# ══════════════════════════════════════════════════════════════════════
+if 'Status' in df_filtered.columns:
+    df_sf1 = df_filtered[df_filtered['Status'].str.upper().str.contains('PENDENTE SF1|SF1', na=False)].copy()
+    tem_pc = df_sf1['Nº PC'].notna() & (~df_sf1['Nº PC'].isin(['', '—', 'nan'])) if 'Nº PC' in df_sf1.columns else pd.Series([False]*len(df_sf1))
+    df_com_pc  = df_sf1[tem_pc]
+    df_sem_pc  = df_sf1[~tem_pc]
+    qtd_sf1    = len(df_sf1)
+    qtd_com_pc = len(df_com_pc)
+    qtd_sem_pc = len(df_sem_pc)
+    valor_sf1    = df_sf1['Valor'].sum() if 'Valor' in df_sf1.columns else 0
+    valor_sem_pc = df_sem_pc['Valor'].sum() if 'Valor' in df_sem_pc.columns else 0
+
+    if qtd_sf1 > 0:
+        st.markdown("""<style>
+        .alert-card {
+            background: linear-gradient(135deg, #2a0e0e 0%, #3a1010 100%);
+            border: 2px solid #ff4d6a;
+            border-radius: 16px; padding: 28px 20px;
+            text-align: center; box-shadow: 0 0 18px rgba(255,77,106,0.25);
+        }
+        .alert-card .label { font-size: 0.72rem; color: #f08090; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+        .alert-card .value { font-size: 2.8rem; font-weight: 700; color: #ff4d6a; line-height: 1.15; margin: 6px 0 2px 0; }
+        .alert-card .sub { font-size: 0.78rem; color: #f08090; }
+        .warn-card {
+            background: linear-gradient(135deg, #1e1620 0%, #261c2e 100%);
+            border: 1.5px solid #b197fc;
+            border-radius: 16px; padding: 28px 20px;
+            text-align: center;
+        }
+        .warn-card .label { font-size: 0.72rem; color: #c9b8fc; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+        .warn-card .value { font-size: 2.4rem; font-weight: 700; color: #b197fc; line-height: 1.15; margin: 6px 0 2px 0; }
+        .warn-card .sub { font-size: 0.78rem; color: #c9b8fc; }
+        </style>""", unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">⚠️ Notas Pendentes de Lançamento (SF1)</div>', unsafe_allow_html=True)
+
+        sf_c1, sf_c2, sf_c3 = st.columns([1.2, 1, 1])
+        with sf_c1:
+            st.markdown(f"""<div class="alert-card">
+                <div class="label">🚨 Sem PC — Crítico</div>
+                <div class="value">{qtd_sem_pc}</div>
+                <div class="sub">Notas sem PC e sem lançamento<br>{format_brl(valor_sem_pc)} em risco</div>
+            </div>""", unsafe_allow_html=True)
+        with sf_c2:
+            st.markdown(f"""<div class="warn-card">
+                <div class="label">📋 Com PC — Atenção</div>
+                <div class="value">{qtd_com_pc}</div>
+                <div class="sub">Notas com PC sem lançamento<br>{format_brl(df_com_pc['Valor'].sum() if 'Valor' in df_com_pc.columns else 0)}</div>
+            </div>""", unsafe_allow_html=True)
+        with sf_c3:
+            st.markdown(f"""<div class="metric-card">
+                <div class="metric-label">Total SF1 Pendente</div>
+                <div class="metric-value color-orange">{qtd_sf1}</div>
+                <div style="font-size:0.78rem;color:#8892a4;margin-top:4px">{format_brl(valor_sf1)} no total</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Detalhe por Comprador
+        if 'Comprador' in df_sf1.columns:
+            col_sf1, col_sf2 = st.columns(2)
+            with col_sf1:
+                df_sf_comp = df_sf1.copy()
+                df_sf_comp['Tipo'] = tem_pc.map({True: 'Com PC', False: 'Sem PC 🚨'})
+                df_sf_grp = df_sf_comp.groupby(['Comprador','Tipo']).size().reset_index(name='Qtd')
+                df_sf_grp = df_sf_grp[df_sf_grp['Comprador'].notna() & (~df_sf_grp['Comprador'].isin(['—','']))]
+                if len(df_sf_grp) > 0:
+                    fig_sf = go.Figure()
+                    for tipo, cor in [('Sem PC 🚨','#ff4d6a'), ('Com PC','#b197fc')]:
+                        df_t = df_sf_grp[df_sf_grp['Tipo']==tipo]
+                        if len(df_t) > 0:
+                            fig_sf.add_trace(go.Bar(
+                                x=df_t['Comprador'], y=df_t['Qtd'],
+                                name=tipo, marker=dict(color=cor),
+                                text=df_t['Qtd'], textposition='inside',
+                                textfont=dict(size=12, color='white')
+                            ))
+                    fig_sf.update_layout(**PLOT_LAYOUT)
+                    fig_sf.update_layout(
+                        barmode='stack',
+                        title='📊 SF1 Pendente por Comprador',
+                        height=340,
+                        xaxis=dict(showgrid=False, tickangle=-30),
+                        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                        legend=dict(orientation='h', y=-0.3, font=dict(size=11))
+                    )
+                    st.plotly_chart(fig_sf, use_container_width=True)
+
+            with col_sf2:
+                # Tabela dos sem PC (mais críticos) em destaque
+                st.markdown("<div style='font-size:0.9rem;color:#ff4d6a;font-weight:700;margin-bottom:8px'>🚨 Detalhe — Notas Sem PC (mais críticas)</div>", unsafe_allow_html=True)
+                cols_sf = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Filial'] if c in df_sem_pc.columns]
+                if len(cols_sf) > 0 and len(df_sem_pc) > 0:
+                    st.dataframe(
+                        df_sem_pc[cols_sf].sort_values('Valor', ascending=False).style.format(
+                            {'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}
+                        ).set_properties(**{'background-color': 'rgba(255,77,106,0.08)'}),
+                        use_container_width=True, height=300
+                    )
+                else:
+                    st.info('Nenhuma nota sem PC encontrada.')
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════
 # GRÁFICOS
 # ══════════════════════════════════════════════════════════════════════
 COLORS = ["#4dabf7","#ff8c42","#51cf66","#ff4d6a","#b197fc","#ffd43b","#20c997","#f06595"]
