@@ -223,10 +223,22 @@ def format_brl(valor):
 # ══════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════
+EXCEL_PATH = "PENDENCIAS TOTVS BIOFLOR.xlsx"
+
 with st.sidebar:
     st.markdown("### 📁 Dados")
-    uploaded = st.file_uploader("Carregar Excel de Pendências", type=["xlsx","xls","csv"])
 
+    # Carrega automaticamente do repositório
+    if 'df' not in st.session_state:
+        try:
+            df = load_data(EXCEL_PATH)
+            st.session_state['df'] = df
+        except Exception as e:
+            st.error(f"Erro ao carregar planilha: {e}")
+            st.stop()
+
+    # Permite também upload manual para atualizar
+    uploaded = st.file_uploader("🔄 Atualizar Excel (opcional)", type=["xlsx","xls","csv"])
     if uploaded:
         if uploaded.name.endswith('.csv'):
             df = pd.read_csv(uploaded, dtype=str)
@@ -241,7 +253,7 @@ with st.sidebar:
                 st.text(f"{c}: {sample}")
 
     if 'df' not in st.session_state:
-        st.info("👆 Faça upload do arquivo Excel para começar")
+        st.info("Carregando dados...")
         st.stop()
 
     df = st.session_state['df']
