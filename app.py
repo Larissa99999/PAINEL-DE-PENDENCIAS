@@ -139,26 +139,7 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="")
         st.error(f"❌ Erro ao salvar: {e}")
         return False
 
-def load_justificativas():
-    if os.path.exists(JUSTIFICATIVAS_FILE):
-        return pd.read_csv(JUSTIFICATIVAS_FILE, dtype=str)
-    return pd.DataFrame(columns=["ID","Justificativa","Observacao","Prazo_Resolucao","Data_Preenchimento"])
 
-def save_justificativa(row_id, justificativa, observacao, prazo):
-    df_just = load_justificativas()
-    new_row = {
-        "ID": str(row_id),
-        "Justificativa": justificativa,
-        "Observacao": observacao,
-        "Prazo_Resolucao": str(prazo) if prazo else "",
-        "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M")
-    }
-    if str(row_id) in df_just['ID'].values:
-        df_just.loc[df_just['ID'] == str(row_id), new_row.keys()] = new_row.values()
-    else:
-        df_just = pd.concat([df_just, pd.DataFrame([new_row])], ignore_index=True)
-    df_just.to_csv(JUSTIFICATIVAS_FILE, index=False)
-    return True
 
 def format_brl(valor):
     return f"R$ {valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
@@ -560,4 +541,5 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
+
 
