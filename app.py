@@ -81,7 +81,7 @@ OPCOES_JUSTIFICATIVA = [
 ]
 
 SHEET_ID = "1XABBxLxziTZpMPCOzeoYWhsxDiS-F5sfZnTS3lraa-o"
-COLS_JUST = ["ID", "Justificativa", "Observacao", "Prazo_Resolucao", "Data_Preenchimento", "Responsavel"]
+COLS_JUST = ["ID", "Nº_PC", "Fornecedor", "Comprador", "Solicitante", "Filial", "Valor", "Vencimento", "Dias_Atraso", "Justificativa", "Observacao", "Prazo_Resolucao", "Data_Preenchimento", "Responsavel", "Status_Resolucao"]
 
 @st.cache_resource
 def get_gsheet_client():
@@ -124,22 +124,52 @@ def load_justificativas():
         st.warning(f"⚠️ Não foi possível carregar justificativas: {e}")
         return pd.DataFrame(columns=COLS_JUST)
 
-def save_justificativa(row_id, justificativa, observacao, prazo, responsavel=""):
+def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="", df_ref=None):
     try:
         ws = get_worksheet()
         data = ws.get_all_records()
         df_just = pd.DataFrame(data, dtype=str) if data else pd.DataFrame(columns=COLS_JUST)
+
+        # Busca dados da pendência para enriquecer o histórico
+        row_data = {}
+        if df_ref is not None and len(df_ref) > 0:
+            match = df_ref[df_ref['ID'] == str(row_id)]
+            if len(match) > 0:
+                r = match.iloc[0]
+                agora = pd.Timestamp.now().normalize()
+                venc = r.get('Vencimento', '')
+                dias_atraso = int((agora - venc).days) if pd.notna(venc) and isinstance(venc, pd.Timestamp) else 0
+                row_data = {
+                    "Nº_PC": str(r.get('Nº PC', '')),
+                    "Fornecedor": str(r.get('Fornecedor', '')),
+                    "Comprador": str(r.get('Comprador', '')),
+                    "Solicitante": str(r.get('Solicitante', '')),
+                    "Filial": str(r.get('Filial', '')),
+                    "Valor": str(r.get('Valor', '')),
+                    "Vencimento": str(venc)[:10] if venc else '',
+                    "Dias_Atraso": str(dias_atraso),
+                }
+
         new_row = {
             "ID": str(row_id),
+            "Nº_PC": row_data.get('Nº_PC', ''),
+            "Fornecedor": row_data.get('Fornecedor', ''),
+            "Comprador": row_data.get('Comprador', ''),
+            "Solicitante": row_data.get('Solicitante', ''),
+            "Filial": row_data.get('Filial', ''),
+            "Valor": row_data.get('Valor', ''),
+            "Vencimento": row_data.get('Vencimento', ''),
+            "Dias_Atraso": row_data.get('Dias_Atraso', ''),
             "Justificativa": justificativa,
             "Observacao": observacao,
             "Prazo_Resolucao": str(prazo) if prazo else "",
             "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Responsavel": responsavel
+            "Responsavel": responsavel,
+            "Status_Resolucao": "Pendente"
         }
         if len(df_just) > 0 and str(row_id) in df_just['ID'].values:
             cell = ws.find(str(row_id))
-            ws.update(f'A{cell.row}:F{cell.row}', [[new_row[c] for c in COLS_JUST]])
+            ws.update(f'A{cell.row}:O{cell.row}', [[new_row[c] for c in COLS_JUST]])
         else:
             ws.append_row([new_row[c] for c in COLS_JUST])
         load_justificativas.clear()
@@ -530,44 +560,106 @@ else:
     st.info("Coluna 'Vencimento' não encontrada nos dados.")
 
 # ══════════════════════════════════════════════════════════════════════
-# GRÁFICO DE BOLHAS: Comprador × Solicitante
+# SEÇÃO: ENTREGAS ENCERRADAS POR RESPONSÁVEL
 # ══════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-title">🔵 Processos Pendentes: Comprador × Solicitante</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📦 Entregas Encerradas por Responsável</div>', unsafe_allow_html=True)
 
-if 'Comprador' in df_filtered.columns and 'Solicitante' in df_filtered.columns:
-    df_cross = df_filtered[
-        df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—',''])) &
-        df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','']))
-    ].copy()
+if 'Dt Entrega PC' in df_filtered.columns:
+    agora_ent = pd.Timestamp.now().normalize()
+    df_filtered['Dt Entrega PC'] = pd.to_datetime(df_filtered['Dt Entrega PC'], dayfirst=True, errors='coerce')
+    df_entrega = df_filtered[df_filtered['Dt Entrega PC'] < agora_ent].copy()
+    df_entrega['Dias_Atraso_Entrega'] = (agora_ent - df_entrega['Dt Entrega PC']).dt.days
 
-    if len(df_cross) > 0:
-        df_grp = df_cross.groupby(['Comprador', 'Solicitante']).size().reset_index(name='Qtd')
-        fig_bubble = go.Figure()
-        for idx, sol in enumerate(df_grp['Solicitante'].unique()):
-            df_s = df_grp[df_grp['Solicitante'] == sol]
-            fig_bubble.add_trace(go.Scatter(
-                x=df_s['Comprador'],
-                y=[sol] * len(df_s),
-                mode='markers+text',
-                name=sol,
-                marker=dict(
-                    size=df_s['Qtd'] * 8,
-                    color=COLORS[idx % len(COLORS)],
-                    opacity=0.85,
-                    line=dict(width=1, color='white')
-                ),
-                text=df_s['Qtd'],
-                textposition='middle center',
-                textfont=dict(size=12, color='white', family='DM Sans'),
-            ))
-        fig_bubble.update_layout(**PLOT_LAYOUT,
-            title="🔵 Bolhas: Qtd Processos por Comprador × Solicitante",
-            height=420,
-            xaxis=dict(tickangle=-30, showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)"))
-        st.plotly_chart(fig_bubble, use_container_width=True)
+    if len(df_entrega) == 0:
+        st.success("✅ Nenhuma entrega encerrada no filtro atual!")
     else:
-        st.info("Sem dados suficientes de Comprador e Solicitante para gerar o cruzamento.")
+        total_ent_valor = df_entrega['Valor'].sum() if 'Valor' in df_entrega.columns else 0
+        maior_atraso_ent = df_entrega['Dias_Atraso_Entrega'].max()
+
+        ke1, ke2, ke3 = st.columns(3)
+        with ke1:
+            st.markdown(f"""<div class="metric-card">
+                <div class="metric-label">📦 Entregas Encerradas</div>
+                <div class="metric-value color-red">{len(df_entrega)}</div>
+            </div>""", unsafe_allow_html=True)
+        with ke2:
+            st.markdown(f"""<div class="metric-card">
+                <div class="metric-label">💸 Valor em Aberto</div>
+                <div class="metric-value color-red">{format_brl(total_ent_valor)}</div>
+            </div>""", unsafe_allow_html=True)
+        with ke3:
+            st.markdown(f"""<div class="metric-card">
+                <div class="metric-label">📆 Maior Atraso (dias)</div>
+                <div class="metric-value color-orange">{int(maior_atraso_ent)}</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_e1, col_e2 = st.columns(2)
+
+        with col_e1:
+            if 'Comprador' in df_entrega.columns:
+                df_comp_ent = df_entrega[
+                    df_entrega['Comprador'].notna() & (~df_entrega['Comprador'].isin(['—','']))
+                ].groupby('Comprador').agg(
+                    Qtd=('Comprador','size'),
+                    Valor=('Valor','sum'),
+                    Atraso_Medio=('Dias_Atraso_Entrega','mean')
+                ).reset_index().sort_values('Qtd', ascending=False)
+                if len(df_comp_ent) > 0:
+                    fig_ce = go.Figure()
+                    fig_ce.add_trace(go.Bar(
+                        x=df_comp_ent['Comprador'], y=df_comp_ent['Qtd'],
+                        marker=dict(color='#b197fc', cornerradius=6),
+                        text=df_comp_ent['Qtd'], textposition='auto',
+                        textfont=dict(size=13, color='white'),
+                        customdata=df_comp_ent[['Valor','Atraso_Medio']],
+                        hovertemplate=("<b>%{x}</b><br>Qtd: %{y}<br>Valor: R$ %{customdata[0]:,.2f}<br>Atraso médio: %{customdata[1]:.0f} dias<extra></extra>")
+                    ))
+                    fig_ce.update_layout(**PLOT_LAYOUT, title="🟣 Entregas Encerradas por Comprador", height=380,
+                        xaxis=dict(showgrid=False, tickangle=-30),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
+                    st.plotly_chart(fig_ce, use_container_width=True)
+
+        with col_e2:
+            if 'Solicitante' in df_entrega.columns:
+                df_sol_ent = df_entrega[
+                    df_entrega['Solicitante'].notna() & (~df_entrega['Solicitante'].isin(['—','']))
+                ].groupby('Solicitante').agg(
+                    Qtd=('Solicitante','size'),
+                    Valor=('Valor','sum'),
+                    Atraso_Medio=('Dias_Atraso_Entrega','mean')
+                ).reset_index().sort_values('Qtd', ascending=True)
+                if len(df_sol_ent) > 0:
+                    fig_se = go.Figure()
+                    fig_se.add_trace(go.Bar(
+                        y=df_sol_ent['Solicitante'], x=df_sol_ent['Qtd'], orientation='h',
+                        marker=dict(color='#4dabf7', cornerradius=6),
+                        text=df_sol_ent['Qtd'], textposition='auto',
+                        textfont=dict(size=13, color='white'),
+                        customdata=df_sol_ent[['Valor','Atraso_Medio']],
+                        hovertemplate=("<b>%{y}</b><br>Qtd: %{x}<br>Valor: R$ %{customdata[0]:,.2f}<br>Atraso médio: %{customdata[1]:.0f} dias<extra></extra>")
+                    ))
+                    fig_se.update_layout(**PLOT_LAYOUT, title="🔵 Entregas Encerradas por Solicitante", height=380,
+                        xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+                        yaxis=dict(showgrid=False))
+                    st.plotly_chart(fig_se, use_container_width=True)
+
+        st.markdown('<div class="section-title">📋 Detalhe das Entregas Encerradas</div>', unsafe_allow_html=True)
+        cols_ent = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Dt Entrega PC','Dias_Atraso_Entrega','Filial','Nº PC','Nº Nota','Dt Emissão','Chave Sefaz'] if c in df_entrega.columns]
+
+        def highlight_entrega(row):
+            dias = row.get('Dias_Atraso_Entrega', 0)
+            if dias > 30:
+                return ['background-color: rgba(177,151,252,0.18)'] * len(row)
+            elif dias > 7:
+                return ['background-color: rgba(77,171,247,0.15)'] * len(row)
+            else:
+                return ['background-color: rgba(255,212,59,0.10)'] * len(row)
+
+        styled_ent = df_entrega[cols_ent].sort_values('Dias_Atraso_Entrega', ascending=False).style            .apply(highlight_entrega, axis=1)            .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x})
+        st.dataframe(styled_ent, use_container_width=True, height=350)
+else:
+    st.info("Coluna 'Dt Entrega PC' não encontrada nos dados.")
 
 # ══════════════════════════════════════════════════════════════════════
 # TABELA + JUSTIFICATIVAS
@@ -577,7 +669,7 @@ just_df = load_justificativas()
 df_display = df_filtered.merge(just_df, on='ID', how='left')
 
 show_cols = [c for c in ['Fornecedor','Valor','Vencimento','Status','Comprador','Solicitante',
-                         'Filial','Nº PC','Justificativa','Observacao','Prazo_Resolucao'] if c in df_display.columns]
+                         'Filial','Nº PC','Nº Nota','Dt Emissão','Chave Sefaz','Justificativa','Observacao','Prazo_Resolucao'] if c in df_display.columns]
 
 st.dataframe(
     df_display[show_cols].style.format({
@@ -612,7 +704,7 @@ with col_form2:
             st.error("⚠️ Selecione um motivo!")
         else:
             row_id = sel_pendencia.split(" - ")[0].replace("#","")
-            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=st.session_state.get('responsavel',''))
+            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=st.session_state.get('responsavel',''), df_ref=df_filtered)
             st.success("✅ Justificativa salva com sucesso!")
             st.rerun()
 
