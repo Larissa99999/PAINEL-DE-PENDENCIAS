@@ -112,6 +112,7 @@ def get_worksheet():
         pass
     return ws
 
+@st.cache_data(ttl=30)
 def load_justificativas():
     try:
         ws = get_worksheet()
@@ -141,6 +142,7 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="")
             ws.update(f'A{cell.row}:F{cell.row}', [[new_row[c] for c in COLS_JUST]])
         else:
             ws.append_row([new_row[c] for c in COLS_JUST])
+        load_justificativas.clear()
         return True
     except Exception as e:
         st.error(f"❌ Erro ao salvar: {e}")
