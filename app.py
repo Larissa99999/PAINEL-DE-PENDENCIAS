@@ -420,37 +420,33 @@ with col_g1:
         df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
         df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
         df_sol['Vencidos'] = df_sol['Vencidos'].astype(int)
-        df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(1)
+        df_sol['Em_Dia'] = df_sol['Qtd'] - df_sol['Vencidos']
+        df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(0).astype(int)
         df_sol = df_sol.sort_values('Qtd', ascending=False)
         if len(df_sol) > 0:
-            from plotly.subplots import make_subplots
-            fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+            fig1 = go.Figure()
             fig1.add_trace(go.Bar(
-                x=df_sol['Solicitante'], y=df_sol['Qtd'],
-                name='Total Pendentes',
-                marker=dict(color=COLORS[4]),
-                text=df_sol['Qtd'], textposition='outside',
-                textfont=dict(size=12, color='white'),
-            ), secondary_y=False)
-            fig1.add_trace(go.Scatter(
-                x=df_sol['Solicitante'], y=df_sol['Pct_Vencido'],
-                name='% Vencidos',
-                mode='lines+markers+text',
-                line=dict(color='#ff4d6a', width=2.5),
-                marker=dict(size=8, color='#ff4d6a', symbol='diamond'),
-                text=[f"{v:.0f}%" for v in df_sol['Pct_Vencido']],
-                textposition='top center',
-                textfont=dict(size=11, color='#ff4d6a'),
-            ), secondary_y=True)
+                x=df_sol['Solicitante'], y=df_sol['Em_Dia'],
+                name='No prazo',
+                marker=dict(color='#4dabf7'),
+                textfont=dict(size=11, color='white')
+            ))
+            fig1.add_trace(go.Bar(
+                x=df_sol['Solicitante'], y=df_sol['Vencidos'],
+                name='Vencidos 🚨',
+                marker=dict(color='#ff4d6a'),
+                text=[f"{v} ({p}%)" for v, p in zip(df_sol['Vencidos'], df_sol['Pct_Vencido'])],
+                textposition='inside',
+                textfont=dict(size=11, color='white', family='DM Sans')
+            ))
             fig1.update_layout(**PLOT_LAYOUT,
-                title="👤 Qtd Pendências por Solicitante + % Vencidos",
+                barmode='stack',
+                title="👤 Pendências por Solicitante — No Prazo vs Vencidos",
                 height=400,
                 xaxis=dict(showgrid=False, tickangle=-30),
-                legend=dict(orientation='h', y=1.12)
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                legend=dict(orientation='h', y=1.1)
             )
-            fig1.update_yaxes(title_text='Qtd', showgrid=True, gridcolor='rgba(255,255,255,0.05)', secondary_y=False)
-            fig1.update_yaxes(title_text='% Vencidos', range=[0,120], ticksuffix='%',
-                             tickfont=dict(color='#ff4d6a'), showgrid=False, secondary_y=True)
             st.plotly_chart(fig1, use_container_width=True)
 
 with col_g2:
@@ -459,37 +455,34 @@ with col_g2:
         df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
         df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
         df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
-        df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(1)
-        df_comp = df_comp.sort_values('Valor', ascending=False)
+        df_comp['Valor_Em_Dia'] = df_comp['Valor'] - df_comp['Valor_Vencido']
+        df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(0).astype(int)
+        df_comp = df_comp.sort_values('Valor', ascending=True)
         if len(df_comp) > 0:
             fig2 = go.Figure()
             fig2.add_trace(go.Bar(
-                x=df_comp['Comprador'], y=df_comp['Valor'],
-                name='Valor Total',
-                marker=dict(color=COLORS[2]),
-                text=df_comp['Valor'].apply(lambda v: format_brl(v)),
-                textposition='outside', textfont=dict(size=10, color='white'),
+                y=df_comp['Comprador'], x=df_comp['Valor_Em_Dia'],
+                name='No prazo',
+                orientation='h',
+                marker=dict(color='#51cf66'),
+                textfont=dict(size=11)
             ))
-            fig2.add_trace(go.Scatter(
-                x=df_comp['Comprador'], y=df_comp['Pct_Vencido'],
-                name='% Valor Vencido',
-                mode='lines+markers+text',
-                line=dict(color='#ff4d6a', width=2.5),
-                marker=dict(size=9, color='#ff4d6a', symbol='diamond'),
-                text=[f"{v:.0f}%" for v in df_comp['Pct_Vencido']],
-                textposition='top center',
-                textfont=dict(size=11, color='#ff4d6a'),
-                yaxis='y2'
+            fig2.add_trace(go.Bar(
+                y=df_comp['Comprador'], x=df_comp['Valor_Vencido'],
+                name='Vencido 🚨',
+                orientation='h',
+                marker=dict(color='#ff4d6a'),
+                text=[f"{p}% — {format_brl(v)}" for v, p in zip(df_comp['Valor_Vencido'], df_comp['Pct_Vencido'])],
+                textposition='inside',
+                textfont=dict(size=10, color='white')
             ))
             fig2.update_layout(**PLOT_LAYOUT,
-                title="💰 Valor por Comprador + % Valor Vencido",
+                barmode='stack',
+                title="💰 Valor por Comprador — No Prazo vs Vencido",
                 height=400,
-                xaxis=dict(showgrid=False, tickangle=-30),
-                yaxis=dict(title='Valor (R$)', showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                yaxis2=dict(title='% Vencido', overlaying='y', side='right',
-                           range=[0,120], showgrid=False, ticksuffix='%',
-                           tickfont=dict(color='#ff4d6a')),
-                legend=dict(orientation='h', y=1.12)
+                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+                yaxis=dict(showgrid=False),
+                legend=dict(orientation='h', y=1.1)
             )
             st.plotly_chart(fig2, use_container_width=True)
 
