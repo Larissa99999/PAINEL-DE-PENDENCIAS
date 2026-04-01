@@ -483,28 +483,42 @@ with col_g1:
         df_sol = df_sol.sort_values('Qtd', ascending=False)
         if len(df_sol) > 0:
             fig1 = go.Figure()
+            df_sol['Com_Just_Qtd'] = 0
+            if len(just_df) > 0:
+                ids_just = set(just_df['ID'].values)
+                for idx2, row2 in df_sol.iterrows():
+                    sol_name = row2['Solicitante']
+                    sol_rows = base[base['Solicitante'] == sol_name]
+                    df_sol.at[idx2, 'Com_Just_Qtd'] = sol_rows['ID'].isin(ids_just).sum()
+            df_sol['Sem_Just'] = df_sol['Qtd'] - df_sol['Com_Just_Qtd']
+            fig1.add_trace(go.Bar(
+                x=df_sol['Solicitante'], y=df_sol['Com_Just_Qtd'],
+                name='Com justificativa',
+                marker=dict(color='#51cf66'),
+                textfont=dict(size=10, color='white')
+            ))
             fig1.add_trace(go.Bar(
                 x=df_sol['Solicitante'], y=df_sol['Entrega_Enc'],
-                name='Prazo Entrega Enc. 📦',
+                name='Entrega enc.',
                 marker=dict(color='#b197fc'),
-                textfont=dict(size=11, color='white')
+                textfont=dict(size=10, color='white')
             ))
             fig1.add_trace(go.Bar(
                 x=df_sol['Solicitante'], y=df_sol['Vencidos'],
-                name='Vencidos 🚨',
+                name='Vencidos',
                 marker=dict(color='#ff4d6a'),
                 text=[f"{v} ({p}%)" for v, p in zip(df_sol['Vencidos'], df_sol['Pct_Vencido'])],
                 textposition='inside',
-                textfont=dict(size=11, color='white', family='DM Sans')
+                textfont=dict(size=11, color='white')
             ))
             fig1.update_layout(**PLOT_LAYOUT)
             fig1.update_layout(
-                barmode='stack',
-                title="👤 Por Solicitante — Entrega Enc. + Vencidos",
-                height=400,
+                barmode='overlay',
+                title="👤 Por Solicitante",
+                height=380,
                 xaxis=dict(showgrid=False, tickangle=-30),
                 yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                legend=dict(orientation='h', y=1.1)
+                legend=dict(orientation='h', y=-0.25, font=dict(size=11))
             )
             st.plotly_chart(fig1, use_container_width=True)
 
@@ -542,18 +556,17 @@ with col_g2:
             fig2.update_layout(**PLOT_LAYOUT)
             fig2.update_layout(
                 barmode='stack',
-                title="💰 Valor por Comprador — Entrega Enc. + Vencido",
-                height=400,
+                title="💰 Valor por Comprador",
+                height=380,
                 xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
                 yaxis=dict(showgrid=False),
-                legend=dict(orientation='h', y=1.1)
+                legend=dict(orientation='h', y=-0.25, font=dict(size=11))
             )
             st.plotly_chart(fig2, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════
 # SEÇÃO: PROCESSOS VENCIDOS / ATRASADOS POR RESPONSÁVEL
 # ══════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-title">🚨 Processos Vencidos / Atrasados por Responsável</div>', unsafe_allow_html=True)
 
 if 'Vencimento' in df_filtered.columns:
     agora = pd.Timestamp.now().normalize()
@@ -567,23 +580,6 @@ if 'Vencimento' in df_filtered.columns:
         total_venc_valor = df_vencidos['Valor'].sum() if 'Valor' in df_vencidos.columns else 0
         maior_atraso = df_vencidos['Dias_Atraso'].max()
         media_atraso = df_vencidos['Dias_Atraso'].mean()
-
-        kv1, kv2, kv3 = st.columns(3)
-        with kv1:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">⚠️ Processos Atrasados</div>
-                <div class="metric-value color-red">{len(df_vencidos)}</div>
-            </div>""", unsafe_allow_html=True)
-        with kv2:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">💸 Valor em Atraso</div>
-                <div class="metric-value color-red">{format_brl(total_venc_valor)}</div>
-            </div>""", unsafe_allow_html=True)
-        with kv3:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">📆 Maior Atraso (dias)</div>
-                <div class="metric-value color-orange">{int(maior_atraso)}</div>
-            </div>""", unsafe_allow_html=True)
 
         # Tabela de vencidos em evidência
         st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
