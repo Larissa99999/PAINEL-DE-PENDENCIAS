@@ -356,21 +356,34 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════════════
 # KPIs
 # ══════════════════════════════════════════════════════════════════════
+agora_now = pd.Timestamp.now()
 total_valor = df_filtered['Valor'].sum() if 'Valor' in df_filtered.columns else 0
 total_itens = len(df_filtered)
 
 vencidas = 0
+valor_vencido = 0
+maior_atraso_kpi = 0
 if 'Vencimento' in df_filtered.columns:
-    vencidas = len(df_filtered[df_filtered['Vencimento'] < pd.Timestamp.now()])
+    df_venc_kpi = df_filtered[df_filtered['Vencimento'] < agora_now]
+    vencidas = len(df_venc_kpi)
+    valor_vencido = df_venc_kpi['Valor'].sum() if 'Valor' in df_venc_kpi.columns else 0
+    if vencidas > 0:
+        maior_atraso_kpi = int((agora_now.normalize() - df_venc_kpi['Vencimento']).dt.days.max())
+
+entrega_enc = 0
+if 'Dt Entrega PC' in df_filtered.columns:
+    df_filtered['Dt Entrega PC'] = pd.to_datetime(df_filtered['Dt Entrega PC'], dayfirst=True, errors='coerce')
+    entrega_enc = len(df_filtered[df_filtered['Dt Entrega PC'] < agora_now])
 
 just_df = load_justificativas()
 com_justificativa = len(df_filtered[df_filtered['ID'].isin(just_df['ID'])])
 sem_justificativa = total_itens - com_justificativa
+pct_just = int(com_justificativa / total_itens * 100) if total_itens > 0 else 0
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
 with c1:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Total de Itens</div>
+        <div class="metric-label">Total Pendências</div>
         <div class="metric-value color-blue">{total_itens}</div>
     </div>""", unsafe_allow_html=True)
 with c2:
@@ -380,18 +393,33 @@ with c2:
     </div>""", unsafe_allow_html=True)
 with c3:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Vencidas</div>
+        <div class="metric-label">🚨 Vencidos</div>
         <div class="metric-value color-red">{vencidas}</div>
     </div>""", unsafe_allow_html=True)
 with c4:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Com Justificativa</div>
-        <div class="metric-value color-green">{com_justificativa}</div>
+        <div class="metric-label">💸 Valor Vencido</div>
+        <div class="metric-value color-red">{format_brl(valor_vencido)}</div>
     </div>""", unsafe_allow_html=True)
 with c5:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Sem Justificativa</div>
-        <div class="metric-value color-orange">{sem_justificativa}</div>
+        <div class="metric-label">📆 Maior Atraso</div>
+        <div class="metric-value color-orange">{maior_atraso_kpi}d</div>
+    </div>""", unsafe_allow_html=True)
+with c6:
+    st.markdown(f"""<div class="metric-card">
+        <div class="metric-label">📦 Entrega Enc.</div>
+        <div class="metric-value color-purple">{entrega_enc}</div>
+    </div>""", unsafe_allow_html=True)
+with c7:
+    st.markdown(f"""<div class="metric-card">
+        <div class="metric-label">✅ Com Justificativa</div>
+        <div class="metric-value color-green">{com_justificativa}</div>
+    </div>""", unsafe_allow_html=True)
+with c8:
+    st.markdown(f"""<div class="metric-card">
+        <div class="metric-label">% Justificado</div>
+        <div class="metric-value color-{'green' if pct_just >= 50 else 'orange'}">{pct_just}%</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -420,15 +448,25 @@ with col_g1:
         df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
         df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
         df_sol['Vencidos'] = df_sol['Vencidos'].astype(int)
-        df_sol['Em_Dia'] = df_sol['Qtd'] - df_sol['Vencidos']
         df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(0).astype(int)
+        if 'Dt Entrega PC' in df_filtered.columns:
+            df_sol_ent = base[base['Dt Entrega PC'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Entrega_Enc')
+            df_sol = df_sol.merge(df_sol_ent, on='Solicitante', how='left').fillna(0)
+            df_sol['Entrega_Enc'] = df_sol['Entrega_Enc'].astype(int)
+        else:
+            df_sol['Entrega_Enc'] = 0
+        df_sol['Pct_just'] = 0
+        if len(just_df) > 0:
+            ids_just = set(just_df['ID'].values)
+            df_sol['Com_Just'] = base.groupby('Solicitante').apply(lambda x: x['ID'].isin(ids_just).sum()).values
+            df_sol['Pct_just'] = (df_sol['Com_Just'] / df_sol['Qtd'] * 100).round(0).astype(int)
         df_sol = df_sol.sort_values('Qtd', ascending=False)
         if len(df_sol) > 0:
             fig1 = go.Figure()
             fig1.add_trace(go.Bar(
-                x=df_sol['Solicitante'], y=df_sol['Em_Dia'],
-                name='No prazo',
-                marker=dict(color='#4dabf7'),
+                x=df_sol['Solicitante'], y=df_sol['Entrega_Enc'],
+                name='Prazo Entrega Enc. 📦',
+                marker=dict(color='#b197fc'),
                 textfont=dict(size=11, color='white')
             ))
             fig1.add_trace(go.Bar(
@@ -442,7 +480,7 @@ with col_g1:
             fig1.update_layout(**PLOT_LAYOUT)
             fig1.update_layout(
                 barmode='stack',
-                title="👤 Pendências por Solicitante — No Prazo vs Vencidos",
+                title="👤 Por Solicitante — Entrega Enc. + Vencidos",
                 height=400,
                 xaxis=dict(showgrid=False, tickangle=-30),
                 yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
@@ -456,16 +494,20 @@ with col_g2:
         df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
         df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
         df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
-        df_comp['Valor_Em_Dia'] = df_comp['Valor'] - df_comp['Valor_Vencido']
+        if 'Dt Entrega PC' in df_filtered.columns:
+            df_comp_ent = base2[base2['Dt Entrega PC'] < agora_kpi].groupby('Comprador').agg(Valor_Entrega=('Valor','sum')).reset_index()
+            df_comp = df_comp.merge(df_comp_ent, on='Comprador', how='left').fillna(0)
+        else:
+            df_comp['Valor_Entrega'] = 0
         df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(0).astype(int)
         df_comp = df_comp.sort_values('Valor', ascending=True)
         if len(df_comp) > 0:
             fig2 = go.Figure()
             fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'], x=df_comp['Valor_Em_Dia'],
-                name='No prazo',
+                y=df_comp['Comprador'], x=df_comp['Valor_Entrega'],
+                name='Prazo Entrega Enc. 📦',
                 orientation='h',
-                marker=dict(color='#51cf66'),
+                marker=dict(color='#b197fc'),
                 textfont=dict(size=11)
             ))
             fig2.add_trace(go.Bar(
@@ -480,7 +522,7 @@ with col_g2:
             fig2.update_layout(**PLOT_LAYOUT)
             fig2.update_layout(
                 barmode='stack',
-                title="💰 Valor por Comprador — No Prazo vs Vencido",
+                title="💰 Valor por Comprador — Entrega Enc. + Vencido",
                 height=400,
                 xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
                 yaxis=dict(showgrid=False),
@@ -522,83 +564,6 @@ if 'Vencimento' in df_filtered.columns:
                 <div class="metric-label">📆 Maior Atraso (dias)</div>
                 <div class="metric-value color-orange">{int(maior_atraso)}</div>
             </div>""", unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col_vr1, col_vr2 = st.columns(2)
-
-        # Gráfico: Qtd de vencidos por Comprador
-        with col_vr1:
-            if 'Comprador' in df_vencidos.columns:
-                df_comp_venc = df_vencidos[
-                    df_vencidos['Comprador'].notna() & (~df_vencidos['Comprador'].isin(['—','']))
-                ].groupby('Comprador').agg(
-                    Qtd=('Comprador','size'),
-                    Valor=('Valor','sum'),
-                    Atraso_Medio=('Dias_Atraso','mean')
-                ).reset_index().sort_values('Qtd', ascending=False)
-
-                if len(df_comp_venc) > 0:
-                    fig_cv = go.Figure()
-                    fig_cv.add_trace(go.Bar(
-                        x=df_comp_venc['Comprador'],
-                        y=df_comp_venc['Qtd'],
-                        marker=dict(color='#ff4d6a', cornerradius=6),
-                        text=df_comp_venc['Qtd'],
-                        textposition='auto',
-                        textfont=dict(size=13, color='white'),
-                        customdata=df_comp_venc[['Valor','Atraso_Medio']],
-                        hovertemplate=(
-                            "<b>%{x}</b><br>"
-                            "Qtd vencidos: %{y}<br>"
-                            "Valor total: R$ %{customdata[0]:,.2f}<br>"
-                            "Atraso médio: %{customdata[1]:.0f} dias<extra></extra>"
-                        )
-                    ))
-                    fig_cv.update_layout(**PLOT_LAYOUT)
-                    fig_cv.update_layout(
-                        title="🔴 Processos Vencidos por Comprador",
-                        height=380,
-                        xaxis=dict(showgrid=False, tickangle=-30),
-                        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Qtd Vencidos"))
-                    st.plotly_chart(fig_cv, use_container_width=True)
-
-        # Gráfico: Qtd de vencidos por Solicitante
-        with col_vr2:
-            if 'Solicitante' in df_vencidos.columns:
-                df_sol_venc = df_vencidos[
-                    df_vencidos['Solicitante'].notna() & (~df_vencidos['Solicitante'].isin(['—','']))
-                ].groupby('Solicitante').agg(
-                    Qtd=('Solicitante','size'),
-                    Valor=('Valor','sum'),
-                    Atraso_Medio=('Dias_Atraso','mean')
-                ).reset_index().sort_values('Qtd', ascending=True)
-
-                if len(df_sol_venc) > 0:
-                    fig_sv = go.Figure()
-                    fig_sv.add_trace(go.Bar(
-                        y=df_sol_venc['Solicitante'],
-                        x=df_sol_venc['Qtd'],
-                        orientation='h',
-                        marker=dict(color='#ff8c42', cornerradius=6),
-                        text=df_sol_venc['Qtd'],
-                        textposition='auto',
-                        textfont=dict(size=13, color='white'),
-                        customdata=df_sol_venc[['Valor','Atraso_Medio']],
-                        hovertemplate=(
-                            "<b>%{y}</b><br>"
-                            "Qtd vencidos: %{x}<br>"
-                            "Valor total: R$ %{customdata[0]:,.2f}<br>"
-                            "Atraso médio: %{customdata[1]:.0f} dias<extra></extra>"
-                        )
-                    ))
-                    fig_sv.update_layout(**PLOT_LAYOUT)
-                    fig_sv.update_layout(
-                        title="🟠 Processos Vencidos por Solicitante",
-                        height=380,
-                        xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Qtd Vencidos"),
-                        yaxis=dict(showgrid=False))
-                    st.plotly_chart(fig_sv, use_container_width=True)
 
         # Tabela de vencidos em evidência
         st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
