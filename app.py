@@ -81,7 +81,7 @@ OPCOES_JUSTIFICATIVA = [
 ]
 
 SHEET_ID = "1XABBxLxziTZpMPCOzeoYWhsxDiS-F5sfZnTS3lraa-o"
-COLS_JUST = ["ID", "Nº_PC", "Fornecedor", "Comprador", "Solicitante", "Filial", "Valor", "Vencimento", "Dias_Atraso", "Justificativa", "Observacao", "Prazo_Resolucao", "Data_Preenchimento", "Responsavel", "Status_Resolucao"]
+COLS_JUST = ["ID", "Comprador", "Solicitante", "Fornecedor", "Filial", "Nº_PC", "Nº_Nota", "Dt_Entrega", "Vencimento", "Valor", "Dias_Atraso", "Justificativa", "Prazo_Resolucao", "Observacao", "Responsavel", "Data_Preenchimento", "Status_Resolucao"]
 
 @st.cache_resource
 def get_gsheet_client():
@@ -162,36 +162,40 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
                 venc = r.get('Vencimento', '')
                 dias_atraso = int((agora - venc).days) if pd.notna(venc) and isinstance(venc, pd.Timestamp) else 0
                 row_data = {
-                    "Nº_PC": str(r.get('Nº PC', '')),
-                    "Fornecedor": str(r.get('Fornecedor', '')),
                     "Comprador": str(r.get('Comprador', '')),
                     "Solicitante": str(r.get('Solicitante', '')),
+                    "Fornecedor": str(r.get('Fornecedor', '')),
                     "Filial": str(r.get('Filial', '')),
-                    "Valor": str(r.get('Valor', '')),
+                    "Nº_PC": str(r.get('Nº PC', '')),
+                    "Nº_Nota": str(r.get('Nº Nota', '')),
+                    "Dt_Entrega": str(r.get('Dt Entrega PC', ''))[:10] if r.get('Dt Entrega PC', '') else '',
                     "Vencimento": str(venc)[:10] if venc else '',
+                    "Valor": str(r.get('Valor', '')),
                     "Dias_Atraso": str(dias_atraso),
                 }
 
         new_row = {
             "ID": str(row_id),
-            "Nº_PC": row_data.get('Nº_PC', ''),
-            "Fornecedor": row_data.get('Fornecedor', ''),
             "Comprador": row_data.get('Comprador', ''),
             "Solicitante": row_data.get('Solicitante', ''),
+            "Fornecedor": row_data.get('Fornecedor', ''),
             "Filial": row_data.get('Filial', ''),
-            "Valor": row_data.get('Valor', ''),
+            "Nº_PC": row_data.get('Nº_PC', ''),
+            "Nº_Nota": row_data.get('Nº_Nota', ''),
+            "Dt_Entrega": row_data.get('Dt_Entrega', ''),
             "Vencimento": row_data.get('Vencimento', ''),
+            "Valor": row_data.get('Valor', ''),
             "Dias_Atraso": row_data.get('Dias_Atraso', ''),
             "Justificativa": justificativa,
-            "Observacao": observacao,
             "Prazo_Resolucao": str(prazo) if prazo else "",
-            "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Observacao": observacao,
             "Responsavel": responsavel,
+            "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Status_Resolucao": "Pendente"
         }
         if len(df_just) > 0 and str(row_id) in df_just['ID'].values:
             cell = ws.find(str(row_id))
-            ws.update(f'A{cell.row}:O{cell.row}', [[new_row[c] for c in COLS_JUST]])
+            ws.update(f'A{cell.row}:Q{cell.row}', [[new_row[c] for c in COLS_JUST]])
         else:
             ws.append_row([new_row[c] for c in COLS_JUST])
         load_justificativas.clear()
@@ -493,7 +497,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 1: Sem PC — mais crítica
         st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
-        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Chave Sefaz','Filial','Nº PC'] if c in df_sem_pc.columns]
+        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
         if len(df_sem_pc) > 0 and len(cols_sem_pc) > 0:
             st.dataframe(
                 df_sem_pc[cols_sem_pc].sort_values('Valor', ascending=False).style
@@ -506,7 +510,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 2: Com PC mas sem lançamento
         st.markdown('<div class="section-title">📋 Notas Com PC e Sem Lançamento — Atenção</div>', unsafe_allow_html=True)
-        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Nº Nota','Dt Emissão','Chave Sefaz','Filial','Nº PC'] if c in df_com_pc.columns]
+        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
         if len(df_com_pc) > 0 and len(cols_com_pc) > 0:
             st.dataframe(
                 df_com_pc[cols_com_pc].sort_values('Valor', ascending=False).style
@@ -612,9 +616,24 @@ with col_g2:
         df_comp = df_comp.sort_values('Valor', ascending=True)
         if len(df_comp) > 0:
             fig2 = go.Figure()
+            # Calcula valor com justificativa por comprador
+            if len(just_df) > 0:
+                ids_just2 = set(just_df['ID'].values)
+                df_comp_just = base2[base2['ID'].isin(ids_just2)].groupby('Comprador').agg(Valor_Just=('Valor','sum')).reset_index()
+                df_comp = df_comp.merge(df_comp_just, on='Comprador', how='left').fillna(0)
+            else:
+                df_comp['Valor_Just'] = 0
+
+            fig2.add_trace(go.Bar(
+                y=df_comp['Comprador'], x=df_comp['Valor_Just'],
+                name='Com justificativa ✅',
+                orientation='h',
+                marker=dict(color='#51cf66'),
+                textfont=dict(size=10, color='white')
+            ))
             fig2.add_trace(go.Bar(
                 y=df_comp['Comprador'], x=df_comp['Valor_Entrega'],
-                name='Prazo Entrega Enc. 📦',
+                name='Entrega enc. 📦',
                 orientation='h',
                 marker=dict(color='#b197fc'),
                 textfont=dict(size=11)
@@ -660,7 +679,7 @@ if 'Vencimento' in df_filtered.columns:
         st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
         just_df_venc = load_justificativas()
         df_venc_display = df_vencidos.merge(just_df_venc, on='ID', how='left')
-        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Valor','Vencimento','Dias_Atraso','Filial','Nº PC','Justificativa','Observacao'] if c in df_venc_display.columns]
+        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
 
         def highlight_atraso(row):
             dias = row.get('Dias_Atraso', 0)
@@ -688,8 +707,7 @@ st.markdown('<div class="section-title">📝 Pendências e Justificativas</div>'
 just_df = load_justificativas()
 df_display = df_filtered.merge(just_df, on='ID', how='left')
 
-show_cols = [c for c in ['Fornecedor','Valor','Vencimento','Status','Comprador','Solicitante',
-                         'Filial','Nº PC','Nº Nota','Dt Emissão','Chave Sefaz','Justificativa','Observacao','Prazo_Resolucao'] if c in df_display.columns]
+show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
 
 st.dataframe(
     df_display[show_cols].style.format({
