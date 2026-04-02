@@ -552,35 +552,37 @@ agora_kpi = pd.Timestamp.now().normalize()
 col_g1, col_g2 = st.columns(2)
 
 with col_g1:
-    if 'Solicitante' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
+    if 'Solicitante' in df_filtered.columns:
         df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
         base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan']))]
         df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
-        df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
-        df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
+        # Vencidos
+        if 'Vencimento' in df_filtered.columns:
+            df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
+            df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
+        else:
+            df_sol['Vencidos'] = 0
         df_sol['Vencidos'] = df_sol['Vencidos'].astype(int)
         df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(0).astype(int)
+        # Entrega encerrada
         if 'Dt Entrega PC' in df_filtered.columns:
             df_sol_ent = base[base['Dt Entrega PC'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Entrega_Enc')
             df_sol = df_sol.merge(df_sol_ent, on='Solicitante', how='left').fillna(0)
             df_sol['Entrega_Enc'] = df_sol['Entrega_Enc'].astype(int)
         else:
             df_sol['Entrega_Enc'] = 0
-        df_sol['Pct_just'] = 0
-        if len(just_df) > 0:
-            ids_just = set(just_df['ID'].values)
-            df_sol['Com_Just'] = base.groupby('Solicitante').apply(lambda x: x['ID'].isin(ids_just).sum()).values
-            df_sol['Pct_just'] = (df_sol['Com_Just'] / df_sol['Qtd'] * 100).round(0).astype(int)
-        df_sol = df_sol.sort_values('Qtd', ascending=False)
+        # Justificativas por Nº PC
+        df_sol['Com_Just_Qtd'] = 0
+        if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base.columns:
+            pcs_just = set(just_df['Nº_PC'].values)
+            for idx2, row2 in df_sol.iterrows():
+                sol_name = row2['Solicitante']
+                sol_pcs = base[base['Solicitante'] == sol_name]['Nº PC'].astype(str).values
+                df_sol.at[idx2, 'Com_Just_Qtd'] = sum(1 for pc in sol_pcs if pc in pcs_just)
+        df_sol = df_sol.sort_values('Qtd', ascending=True)
         if len(df_sol) > 0:
             # Calcula justificativas por solicitante
-            df_sol['Com_Just_Qtd'] = 0
-            if len(just_df) > 0:
-                ids_just = set(just_df['ID'].values)
-                for idx2, row2 in df_sol.iterrows():
-                    sol_name = row2['Solicitante']
-                    sol_rows = base[base['Solicitante'] == sol_name]
-                    df_sol.at[idx2, 'Com_Just_Qtd'] = sol_rows['ID'].isin(ids_just).sum()
+            # Com_Just_Qtd already calculated above
 
             # Sort ascending para horizontal ficar do maior para o menor no topo
             df_sol = df_sol.sort_values('Qtd', ascending=True)
@@ -620,12 +622,15 @@ with col_g1:
             st.plotly_chart(fig1, use_container_width=True)
 
 with col_g2:
-    if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
+    if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns:
         df_filtered['Comprador'] = df_filtered['Comprador'].astype(str).str.strip()
         base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan']))]
         df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
-        df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
-        df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
+        if 'Vencimento' in base2.columns:
+            df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
+            df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
+        else:
+            df_comp['Valor_Vencido'] = 0
         if 'Dt Entrega PC' in df_filtered.columns:
             df_comp_ent = base2[base2['Dt Entrega PC'] < agora_kpi].groupby('Comprador').agg(Valor_Entrega=('Valor','sum')).reset_index()
             df_comp = df_comp.merge(df_comp_ent, on='Comprador', how='left').fillna(0)
