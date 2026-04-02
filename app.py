@@ -193,10 +193,16 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
             "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Status_Resolucao": "Pendente"
         }
-        if len(df_just) > 0 and str(row_id) in df_just['ID'].values:
-            cell = ws.find(str(row_id))
-            ws.update(f'A{cell.row}:Q{cell.row}', [[new_row[c] for c in COLS_JUST]])
-        else:
+        # Use Nº_PC as match key if available, otherwise ID
+        match_key = new_row.get('Nº_PC', '') or str(row_id)
+        matched = False
+        if len(df_just) > 0 and 'Nº_PC' in df_just.columns:
+            match_rows = df_just[df_just['Nº_PC'] == match_key]
+            if len(match_rows) > 0:
+                idx_row = match_rows.index[0] + 2  # +2 for header and 1-based
+                ws.update(f'A{idx_row}:Q{idx_row}', [[new_row[c] for c in COLS_JUST]])
+                matched = True
+        if not matched:
             ws.append_row([new_row[c] for c in COLS_JUST])
         load_justificativas.clear()
         return True
@@ -311,6 +317,14 @@ with st.sidebar:
     if 'df' not in st.session_state:
         st.info("Carregando dados...")
         st.stop()
+    
+    with st.expander("🔧 Debug colunas detectadas"):
+        _df_tmp = st.session_state['df']
+        st.write("Colunas:", list(_df_tmp.columns))
+        if 'Solicitante' in _df_tmp.columns:
+            st.write("Solicitantes únicos:", _df_tmp['Solicitante'].dropna().unique().tolist()[:10])
+        if 'Comprador' in _df_tmp.columns:
+            st.write("Compradores únicos:", _df_tmp['Comprador'].dropna().unique().tolist()[:10])
 
     df = st.session_state['df']
 
@@ -684,8 +698,12 @@ if 'Vencimento' in df_filtered.columns:
         just_df_venc = load_justificativas()
         # Rename just_df cols to match df columns for display
         just_rename = {'Nº_PC':'Nº PC','Nº_Nota':'Nº Nota','Dt_Entrega':'Dt Entrega PC'}
-        just_cols_display = just_df_venc.rename(columns=just_rename)[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df_venc) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
-        df_venc_display = df_vencidos.merge(just_cols_display, on='ID', how='left')
+        if len(just_df_venc) > 0 and 'Nº_PC' in just_df_venc.columns:
+            just_venc_cols = just_df_venc[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
+            just_venc_cols = just_venc_cols.rename(columns={'Nº_PC': 'Nº PC'})
+            df_venc_display = df_vencidos.merge(just_venc_cols, on='Nº PC', how='left') if 'Nº PC' in df_vencidos.columns else df_vencidos.copy()
+        else:
+            df_venc_display = df_vencidos.copy()
         for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
             if col in df_venc_display.columns:
                 df_venc_display[col] = df_venc_display[col].fillna('').replace('None', '')
@@ -715,8 +733,12 @@ else:
 # ══════════════════════════════════════════════════════════════════════
 st.markdown('<div class="section-title">📝 Pendências e Justificativas</div>', unsafe_allow_html=True)
 just_df = load_justificativas()
-just_cols_main = just_df[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
-df_display = df_filtered.merge(just_cols_main, on='ID', how='left')
+if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
+    just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
+    just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
+    df_display = df_filtered.merge(just_cols_main, on='Nº PC', how='left') if 'Nº PC' in df_filtered.columns else df_filtered.copy()
+else:
+    df_display = df_filtered.copy()
 for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace('None', '')
