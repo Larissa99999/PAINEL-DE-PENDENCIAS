@@ -102,7 +102,6 @@ def get_worksheet():
             ws = sh.worksheet("Sheet1")
         except:
             ws = sh.sheet1
-    # Garante cabeçalho na primeira vez
     try:
         first = ws.acell('A1').value
         if not first or first != 'ID':
@@ -112,11 +111,34 @@ def get_worksheet():
         pass
     return ws
 
+def load_sheet_safe(ws):
+    """Load records handling duplicate headers safely."""
+    try:
+        data = ws.get_all_records(expected_headers=COLS_JUST)
+        return data
+    except Exception:
+        # Fallback: read raw and use first row as header
+        try:
+            all_vals = ws.get_all_values()
+            if len(all_vals) <= 1:
+                return []
+            headers = all_vals[0]
+            rows = []
+            for row in all_vals[1:]:
+                d = {}
+                for i, h in enumerate(COLS_JUST):
+                    d[h] = row[i] if i < len(row) else ''
+                rows.append(d)
+            return rows
+        except:
+            return []
+
+@st.cache_data(ttl=30)
 @st.cache_data(ttl=30)
 def load_justificativas():
     try:
         ws = get_worksheet()
-        data = ws.get_all_records()
+        data = load_sheet_safe(ws)
         if data:
             return pd.DataFrame(data, dtype=str)
         return pd.DataFrame(columns=COLS_JUST)
@@ -649,7 +671,8 @@ if 'Vencimento' in df_filtered.columns:
             else:
                 return ['background-color: rgba(255,212,59,0.10)'] * len(row)
 
-        styled_venc = df_venc_display[cols_venc].sort_values('Dias_Atraso', ascending=False).style\
+        _sort_col = 'Dias_Atraso' if 'Dias_Atraso' in df_venc_display.columns else cols_venc[0]
+        styled_venc = df_venc_display[cols_venc].sort_values(_sort_col, ascending=False).style\
             .apply(highlight_atraso, axis=1)\
             .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x})
 
