@@ -593,11 +593,11 @@ with col_g1:
             fig1.update_layout(
                 barmode='stack',
                 title="👤 Por Solicitante",
-                height=max(250, len(df_sol) * 60),
+                height=max(300, len(df_sol) * 60 + 80),
                 xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
                 yaxis=dict(showgrid=False, automargin=True),
-                margin=dict(l=10, r=20, t=40, b=60),
-                legend=dict(orientation='h', y=-0.18, font=dict(size=11), x=0)
+                margin=dict(l=10, r=20, t=40, b=90),
+                legend=dict(orientation='h', y=-0.28, font=dict(size=11), x=0)
             )
             st.plotly_chart(fig1, use_container_width=True)
 
@@ -651,10 +651,11 @@ with col_g2:
             fig2.update_layout(
                 barmode='stack',
                 title="💰 Valor por Comprador",
-                height=380,
+                height=max(300, len(df_comp) * 50 + 100),
                 xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                yaxis=dict(showgrid=False),
-                legend=dict(orientation='h', y=-0.25, font=dict(size=11))
+                yaxis=dict(showgrid=False, automargin=True),
+                margin=dict(l=10, r=20, t=40, b=90),
+                legend=dict(orientation='h', y=-0.22, font=dict(size=11), x=0)
             )
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -678,7 +679,10 @@ if 'Vencimento' in df_filtered.columns:
         # Tabela de vencidos em evidência
         st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
         just_df_venc = load_justificativas()
-        df_venc_display = df_vencidos.merge(just_df_venc, on='ID', how='left')
+        # Rename just_df cols to match df columns for display
+        just_rename = {'Nº_PC':'Nº PC','Nº_Nota':'Nº Nota','Dt_Entrega':'Dt Entrega PC'}
+        just_cols_display = just_df_venc.rename(columns=just_rename)[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df_venc) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
+        df_venc_display = df_vencidos.merge(just_cols_display, on='ID', how='left')
         cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
 
         def highlight_atraso(row):
@@ -705,7 +709,8 @@ else:
 # ══════════════════════════════════════════════════════════════════════
 st.markdown('<div class="section-title">📝 Pendências e Justificativas</div>', unsafe_allow_html=True)
 just_df = load_justificativas()
-df_display = df_filtered.merge(just_df, on='ID', how='left')
+just_cols_main = just_df[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
+df_display = df_filtered.merge(just_cols_main, on='ID', how='left')
 
 show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
 
