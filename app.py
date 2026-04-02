@@ -553,7 +553,8 @@ col_g1, col_g2 = st.columns(2)
 
 with col_g1:
     if 'Solicitante' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
-        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','']))]
+        df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
+        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan']))]
         df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
         df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
         df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
@@ -620,7 +621,8 @@ with col_g1:
 
 with col_g2:
     if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
-        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','']))]
+        df_filtered['Comprador'] = df_filtered['Comprador'].astype(str).str.strip()
+        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan']))]
         df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
         df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
         df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
@@ -745,9 +747,16 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
 
 show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
 
+# Clean None values in display
+df_display_clean = df_display[show_cols].copy()
+for col in df_display_clean.columns:
+    df_display_clean[col] = df_display_clean[col].replace({'None': '', 'nan': '', 'NaT': ''}).fillna('')
 st.dataframe(
-    df_display[show_cols].style.format({
+    df_display_clean.style.format({
         'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x,
+        'Dt Emissão': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
+        'Dt Entrega PC': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
+        'Vencimento': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
     }),
     use_container_width=True, height=400
 )
