@@ -529,7 +529,7 @@ with col_g1:
             df_sol['Pct_just'] = (df_sol['Com_Just'] / df_sol['Qtd'] * 100).round(0).astype(int)
         df_sol = df_sol.sort_values('Qtd', ascending=False)
         if len(df_sol) > 0:
-            fig1 = go.Figure()
+            # Calcula justificativas por solicitante
             df_sol['Com_Just_Qtd'] = 0
             if len(just_df) > 0:
                 ids_just = set(just_df['ID'].values)
@@ -537,22 +537,27 @@ with col_g1:
                     sol_name = row2['Solicitante']
                     sol_rows = base[base['Solicitante'] == sol_name]
                     df_sol.at[idx2, 'Com_Just_Qtd'] = sol_rows['ID'].isin(ids_just).sum()
-            df_sol['Sem_Just'] = df_sol['Qtd'] - df_sol['Com_Just_Qtd']
+
+            # Sort ascending para horizontal ficar do maior para o menor no topo
+            df_sol = df_sol.sort_values('Qtd', ascending=True)
+
+            fig1 = go.Figure()
             fig1.add_trace(go.Bar(
-                x=df_sol['Solicitante'], y=df_sol['Com_Just_Qtd'],
+                y=df_sol['Solicitante'], x=df_sol['Com_Just_Qtd'],
                 name='Com justificativa',
+                orientation='h',
                 marker=dict(color='#51cf66'),
-                textfont=dict(size=10, color='white')
             ))
             fig1.add_trace(go.Bar(
-                x=df_sol['Solicitante'], y=df_sol['Entrega_Enc'],
+                y=df_sol['Solicitante'], x=df_sol['Entrega_Enc'],
                 name='Entrega enc.',
+                orientation='h',
                 marker=dict(color='#b197fc'),
-                textfont=dict(size=10, color='white')
             ))
             fig1.add_trace(go.Bar(
-                x=df_sol['Solicitante'], y=df_sol['Vencidos'],
+                y=df_sol['Solicitante'], x=df_sol['Vencidos'],
                 name='Vencidos',
+                orientation='h',
                 marker=dict(color='#ff4d6a'),
                 text=[f"{v} ({p}%)" for v, p in zip(df_sol['Vencidos'], df_sol['Pct_Vencido'])],
                 textposition='inside',
@@ -560,12 +565,13 @@ with col_g1:
             ))
             fig1.update_layout(**PLOT_LAYOUT)
             fig1.update_layout(
-                barmode='overlay',
+                barmode='stack',
                 title="👤 Por Solicitante",
-                height=380,
-                xaxis=dict(showgrid=False, tickangle=-30),
-                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                legend=dict(orientation='h', y=-0.25, font=dict(size=11))
+                height=max(250, len(df_sol) * 60),
+                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
+                yaxis=dict(showgrid=False, automargin=True),
+                margin=dict(l=10, r=20, t=40, b=60),
+                legend=dict(orientation='h', y=-0.18, font=dict(size=11), x=0)
             )
             st.plotly_chart(fig1, use_container_width=True)
 
