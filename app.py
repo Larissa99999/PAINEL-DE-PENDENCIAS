@@ -367,6 +367,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(f"**Exibindo:** {len(df_filtered)} de {len(df)} itens")
+    if st.button("🔄 Atualizar Justificativas"):
+        load_justificativas.clear()
+        st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════
 # HEADER
@@ -497,7 +500,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 1: Sem PC — mais crítica
         st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
-        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
+        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
         if len(df_sem_pc) > 0 and len(cols_sem_pc) > 0:
             st.dataframe(
                 df_sem_pc[cols_sem_pc].sort_values('Valor', ascending=False).style
@@ -510,7 +513,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 2: Com PC mas sem lançamento
         st.markdown('<div class="section-title">📋 Notas Com PC e Sem Lançamento — Atenção</div>', unsafe_allow_html=True)
-        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
+        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
         if len(df_com_pc) > 0 and len(cols_com_pc) > 0:
             st.dataframe(
                 df_com_pc[cols_com_pc].sort_values('Valor', ascending=False).style
@@ -683,7 +686,10 @@ if 'Vencimento' in df_filtered.columns:
         just_rename = {'Nº_PC':'Nº PC','Nº_Nota':'Nº Nota','Dt_Entrega':'Dt Entrega PC'}
         just_cols_display = just_df_venc.rename(columns=just_rename)[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df_venc) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
         df_venc_display = df_vencidos.merge(just_cols_display, on='ID', how='left')
-        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
+        for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
+            if col in df_venc_display.columns:
+                df_venc_display[col] = df_venc_display[col].fillna('').replace('None', '')
+        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
 
         def highlight_atraso(row):
             dias = row.get('Dias_Atraso', 0)
@@ -711,8 +717,11 @@ st.markdown('<div class="section-title">📝 Pendências e Justificativas</div>'
 just_df = load_justificativas()
 just_cols_main = just_df[['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy() if len(just_df) > 0 else pd.DataFrame(columns=['ID','Justificativa','Prazo_Resolucao','Observacao','Responsavel'])
 df_display = df_filtered.merge(just_cols_main, on='ID', how='left')
+for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
+    if col in df_display.columns:
+        df_display[col] = df_display[col].fillna('').replace('None', '')
 
-show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
+show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
 
 st.dataframe(
     df_display[show_cols].style.format({
