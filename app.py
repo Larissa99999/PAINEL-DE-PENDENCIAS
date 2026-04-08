@@ -500,21 +500,25 @@ em_aprovacao = 0
 if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
 
+valor_em_aprovacao = 0
+if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns:
+    valor_em_aprovacao = df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')]['Valor'].sum()
+
 r2c1, r2c2, r2c3 = st.columns(3)
 with r2c1:
     st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Valor Total</div>
-        <div class="metric-value color-green" style="font-size:1.1rem">{format_brl(total_valor)}</div>
-    </div>""", unsafe_allow_html=True)
-with r2c2:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Valor Vencido</div>
+        <div class="metric-label">💸 Valor Total Vencido</div>
         <div class="metric-value color-red" style="font-size:1.1rem">{format_brl(valor_vencido)}</div>
     </div>""", unsafe_allow_html=True)
+with r2c2:
+    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
+        <div class="metric-label" style="color:#4dabf7">⏳ Qtd Em Aprovação (B)</div>
+        <div class="metric-value" style="color:#4dabf7;font-size:2rem">{em_aprovacao}</div>
+    </div>""", unsafe_allow_html=True)
 with r2c3:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">⏳ Em Aprovação (B)</div>
-        <div class="metric-value color-orange">{em_aprovacao}</div>
+    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
+        <div class="metric-label" style="color:#4dabf7">💰 Valor Em Aprovação (B)</div>
+        <div class="metric-value" style="color:#4dabf7;font-size:1.1rem">{format_brl(valor_em_aprovacao)}</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
