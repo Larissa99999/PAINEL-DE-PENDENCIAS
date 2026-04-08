@@ -366,6 +366,7 @@ with st.sidebar:
         if len(emiss_validas) > 0:
             emiss_min = emiss_validas.min()
             emiss_max = emiss_validas.max()
+            from datetime import date as date_type
             emiss_de = st.date_input("De", value=emiss_min.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_de")
             emiss_ate = st.date_input("Até", value=emiss_max.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_ate")
         else:
@@ -394,10 +395,14 @@ with st.sidebar:
         ]
     if emiss_de and emiss_ate and 'Dt Emissão' in df_filtered.columns:
         df_filtered['Dt Emissão'] = pd.to_datetime(df_filtered['Dt Emissão'], dayfirst=True, errors='coerce')
-        df_filtered = df_filtered[
-            (df_filtered['Dt Emissão'].dt.date >= emiss_de) &
-            (df_filtered['Dt Emissão'].dt.date <= emiss_ate)
-        ]
+        mask_emiss = (
+            df_filtered['Dt Emissão'].isna() |  # include records with no emissão date
+            (
+                (df_filtered['Dt Emissão'].dt.date >= emiss_de) &
+                (df_filtered['Dt Emissão'].dt.date <= emiss_ate)
+            )
+        )
+        df_filtered = df_filtered[mask_emiss]
 
     st.markdown("---")
     st.markdown(f"**Exibindo:** {len(df_filtered)} de {len(df)} itens")
@@ -427,7 +432,9 @@ vencidas = 0
 valor_vencido = 0
 maior_atraso_kpi = 0
 if 'Vencimento' in df_filtered.columns:
-    df_venc_kpi = df_filtered[df_filtered['Vencimento'] < agora_now]
+    # Consider all records with valid past vencimento dates
+    venc_series = pd.to_datetime(df_filtered['Vencimento'], dayfirst=True, errors='coerce')
+    df_venc_kpi = df_filtered[venc_series < agora_now].copy()
     vencidas = len(df_venc_kpi)
     valor_vencido = df_venc_kpi['Valor'].sum() if 'Valor' in df_venc_kpi.columns else 0
     if vencidas > 0:
@@ -502,7 +509,7 @@ with r2c1:
 with r2c2:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Total</div>
-        <div class="metric-value color-green" style="font-size:1.4rem">{format_brl(total_valor)}</div>
+        <div class="metric-value color-green" style="font-size:1.1rem">{format_brl(total_valor)}</div>
     </div>""", unsafe_allow_html=True)
 with r2c3:
     st.markdown(f"""<div class="metric-card">
