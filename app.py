@@ -604,31 +604,39 @@ with col_g1:
         df_sol['Cor'] = df_sol.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_sol = df_sol.sort_values('Qtd', ascending=True)
 
-        fig1 = go.Figure()
-        def label_sol(r):
-            parts = [f"Total: {r['Qtd']}"]
-            if r['Pct_Vencido'] > 0: parts.append(f"🔴 {r['Pct_Vencido']}% venc.")
-            if r['Pct_Entrega'] > 0: parts.append(f"🟣 {r['Pct_Entrega']}% entr.enc.")
-            if r['Pct_Just'] > 0:    parts.append(f"🟢 {r['Pct_Just']}% justif.")
-            return " | ".join(parts)
+        # Calcula segmentos sem sobreposição
+        df_sol['Seg_Vencido']  = df_sol['Vencidos'].astype(int)
+        df_sol['Seg_Entrega']  = (df_sol['Entrega_Enc'] - df_sol['Vencidos']).clip(lower=0).astype(int)
+        df_sol['Seg_Just']     = df_sol['Com_Just_Qtd'].astype(int)
+        df_sol['Seg_Normal']   = (df_sol['Qtd'] - df_sol['Seg_Vencido'] - df_sol['Seg_Entrega'] - df_sol['Seg_Just']).clip(lower=0).astype(int)
 
-        fig1.add_trace(go.Bar(
-            y=df_sol['Solicitante'],
-            x=df_sol['Qtd'],
-            orientation='h',
-            marker=dict(color=df_sol['Cor'].tolist()),
-            text=[label_sol(r) for _, r in df_sol.iterrows()],
-            textposition='inside',
-            textfont=dict(size=10, color='white'),
-            hovertemplate='<b>%{y}</b><br>%{text}<extra></extra>'
-        ))
+        fig1 = go.Figure()
+        for seg, cor, nome in [
+            ('Seg_Normal',  '#4a5568', 'Pendente normal'),
+            ('Seg_Just',    '#51cf66', 'Com justificativa'),
+            ('Seg_Entrega', '#b197fc', 'Entrega enc.'),
+            ('Seg_Vencido', '#ff4d6a', 'Vencido'),
+        ]:
+            fig1.add_trace(go.Bar(
+                y=df_sol['Solicitante'],
+                x=df_sol[seg],
+                name=nome,
+                orientation='h',
+                marker=dict(color=cor),
+                text=[f"{v}" if v > 0 else '' for v in df_sol[seg]],
+                textposition='inside',
+                textfont=dict(size=10, color='white'),
+                hovertemplate=f'<b>%{{y}}</b><br>{nome}: %{{x}}<extra></extra>'
+            ))
         fig1.update_layout(**PLOT_LAYOUT)
         fig1.update_layout(
+            barmode='stack',
             title='👤 Por Solicitante',
             height=max(280, len(df_sol) * 55 + 60),
             xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
             yaxis=dict(showgrid=False, automargin=True),
-            margin=dict(l=10, r=20, t=40, b=20),
+            margin=dict(l=10, r=20, t=40, b=80),
+            legend=dict(orientation='h', y=-0.22, font=dict(size=11))
         )
         st.plotly_chart(fig1, use_container_width=True)
 
@@ -664,31 +672,41 @@ with col_g2:
         df_comp['Cor'] = df_comp.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_comp = df_comp.sort_values('Valor', ascending=True)
 
-        fig2 = go.Figure()
-        def label_comp(r):
-            parts = [format_brl(r['Valor'])]
-            if r['Pct_Vencido'] > 0: parts.append(f"🔴 {r['Pct_Vencido']}% venc.")
-            if r['Pct_Entrega'] > 0: parts.append(f"🟣 {r['Pct_Entrega']}% entr.enc.")
-            if r['Pct_Just'] > 0:    parts.append(f"🟢 {r['Pct_Just']}% justif.")
-            return " | ".join(parts)
+        # Calcula segmentos de valor sem sobreposição
+        df_comp['Seg_Vencido']  = df_comp['Valor_Vencido']
+        df_comp['Qtd_Entrega']  = df_comp['Qtd_Entrega'].astype(int)
+        # Valor entrega = proporção das entregas encerradas menos vencidas
+        df_comp['Seg_Entrega']  = ((df_comp['Qtd_Entrega'] - df_comp.get('Qtd_Vencido', 0)).clip(lower=0) / df_comp['Qtd'] * df_comp['Valor']).fillna(0)
+        df_comp['Seg_Just']     = (df_comp['Com_Just'] / df_comp['Qtd'] * df_comp['Valor']).fillna(0)
+        df_comp['Seg_Normal']   = (df_comp['Valor'] - df_comp['Seg_Vencido'] - df_comp['Seg_Entrega'] - df_comp['Seg_Just']).clip(lower=0)
 
-        fig2.add_trace(go.Bar(
-            y=df_comp['Comprador'],
-            x=df_comp['Valor'],
-            orientation='h',
-            marker=dict(color=df_comp['Cor'].tolist()),
-            text=[label_comp(r) for _, r in df_comp.iterrows()],
-            textposition='inside',
-            textfont=dict(size=10, color='white'),
-            hovertemplate='<b>%{y}</b><br>%{text}<extra></extra>'
-        ))
+        fig2 = go.Figure()
+        for seg, cor, nome in [
+            ('Seg_Normal',  '#4a5568', 'Pendente normal'),
+            ('Seg_Just',    '#51cf66', 'Com justificativa'),
+            ('Seg_Entrega', '#b197fc', 'Entrega enc.'),
+            ('Seg_Vencido', '#ff4d6a', 'Vencido'),
+        ]:
+            fig2.add_trace(go.Bar(
+                y=df_comp['Comprador'],
+                x=df_comp[seg],
+                name=nome,
+                orientation='h',
+                marker=dict(color=cor),
+                text=[format_brl(v) if v > 100 else '' for v in df_comp[seg]],
+                textposition='inside',
+                textfont=dict(size=9, color='white'),
+                hovertemplate=f'<b>%{{y}}</b><br>{nome}: R$ %{{x:,.2f}}<extra></extra>'
+            ))
         fig2.update_layout(**PLOT_LAYOUT)
         fig2.update_layout(
+            barmode='stack',
             title='💰 Valor por Comprador',
             height=max(280, len(df_comp) * 55 + 60),
             xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
             yaxis=dict(showgrid=False, automargin=True),
-            margin=dict(l=10, r=20, t=40, b=20),
+            margin=dict(l=10, r=20, t=40, b=80),
+            legend=dict(orientation='h', y=-0.22, font=dict(size=11))
         )
         st.plotly_chart(fig2, use_container_width=True)
 
