@@ -277,6 +277,12 @@ def load_data(file):
     if key_cols:
         df = df.dropna(subset=key_cols, how="all").reset_index(drop=True)
     df["ID"] = df.index.astype(str)
+    # Fill missing Solicitante with Comprador
+    if 'Solicitante' in df.columns and 'Comprador' in df.columns:
+        df['Solicitante'] = df['Solicitante'].apply(
+            lambda x: x if str(x).strip() not in ['', '—', 'nan', 'None'] else '')
+        mask = df['Solicitante'] == ''
+        df.loc[mask, 'Solicitante'] = df.loc[mask, 'Comprador']
     return df
 
 def format_brl(valor):
@@ -501,8 +507,10 @@ if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
 
 valor_em_aprovacao = 0
-if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns:
-    valor_em_aprovacao = df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')]['Valor'].sum()
+if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Vencimento' in df_filtered.columns:
+    agora_aprov = pd.Timestamp.now()
+    mask_aprov = (df_filtered['Controle'].astype(str).str.upper().str.startswith('B')) & (df_filtered['Vencimento'] < agora_aprov)
+    valor_em_aprovacao = df_filtered[mask_aprov]['Valor'].sum()
 
 r2c1, r2c2, r2c3 = st.columns(3)
 with r2c1:
@@ -517,7 +525,7 @@ with r2c2:
     </div>""", unsafe_allow_html=True)
 with r2c3:
     st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
-        <div class="metric-label" style="color:#4dabf7">💰 Valor Em Aprovação (B)</div>
+        <div class="metric-label" style="color:#4dabf7">💰 Valor Vencido Em Aprovação (B)</div>
         <div class="metric-value" style="color:#4dabf7;font-size:1.1rem">{format_brl(valor_em_aprovacao)}</div>
     </div>""", unsafe_allow_html=True)
 
@@ -734,34 +742,50 @@ def clean_table(df, cols):
 agora_tab = pd.Timestamp.now()
 em_10_dias = agora_tab + pd.Timedelta(days=10)
 
-# Tabela 1: Vencidos ou vencendo em 10 dias
+# Tabela 1a: Já vencidos
 if 'Vencimento' in df_display.columns:
     venc_s = pd.to_datetime(df_display['Vencimento'], dayfirst=True, errors='coerce')
-    mask_t1 = venc_s <= em_10_dias
-    df_t1 = df_display[mask_t1].copy()
-    df_t1['_dias'] = (agora_tab - pd.to_datetime(df_t1['Vencimento'], dayfirst=True, errors='coerce')).dt.days.fillna(0).astype(int)
-    ids_t1 = set(df_t1.index)
+    mask_vencido = venc_s < agora_tab
+    mask_a_vencer = (venc_s >= agora_tab) & (venc_s <= em_10_dias)
+    df_t1a = df_display[mask_vencido].copy()
+    df_t1a['_dias'] = (agora_tab - pd.to_datetime(df_t1a['Vencimento'], dayfirst=True, errors='coerce')).dt.days.fillna(0).astype(int)
+    df_t1b = df_display[mask_a_vencer].copy()
+    df_t1b['_dias_restantes'] = (pd.to_datetime(df_t1b['Vencimento'], dayfirst=True, errors='coerce') - agora_tab).dt.days.fillna(0).astype(int)
+    ids_t1 = set(df_t1a.index) | set(df_t1b.index)
 else:
-    df_t1 = pd.DataFrame()
+    df_t1a = pd.DataFrame()
+    df_t1b = pd.DataFrame()
     ids_t1 = set()
 
-n_t1 = len(df_t1)
+# Tabela 1a: Já vencidos
+n_t1a = len(df_t1a)
 st.markdown(f"""<div style='background:linear-gradient(135deg,#2a0e0e,#3a1010);border:1.5px solid #ff4d6a;border-radius:12px;padding:16px 20px;margin:24px 0 4px 0'>
-    <span style='color:#ff4d6a;font-size:1.1rem;font-weight:700'>🔴 ATENÇÃO IMEDIATA — Vencidos ou Vencendo nos Próximos 10 Dias</span>
-    <span style='color:#f08090;font-size:0.85rem;margin-left:12px'>({n_t1} registros)</span><br>
-    <span style='color:#f08090;font-size:0.8rem'>Processos que exigem ação urgente. Vermelho = já vencido · Laranja = vence em breve.</span>
+    <span style='color:#ff4d6a;font-size:1.1rem;font-weight:700'>🔴 JÁ VENCIDOS — Ação Imediata Necessária</span>
+    <span style='color:#f08090;font-size:0.85rem;margin-left:12px'>({n_t1a} registros)</span><br>
+    <span style='color:#f08090;font-size:0.8rem'>Processos que já passaram do prazo de vencimento. Ordenados pelo maior atraso.</span>
 </div>""", unsafe_allow_html=True)
 
-if n_t1 > 0:
-    def hl_t1(row):
-        dias = df_t1.loc[row.name, '_dias'] if row.name in df_t1.index else 0
-        if dias > 0:
-            return ['background-color: rgba(255,77,106,0.22)'] * len(row)
-        return ['background-color: rgba(255,140,66,0.15)'] * len(row)
-    t1_clean = clean_table(df_t1.sort_values('_dias', ascending=False), show_cols)
-    st.dataframe(t1_clean.style.apply(hl_t1, axis=1).format(FMT), use_container_width=True, height=350)
+if n_t1a > 0:
+    t1a_clean = clean_table(df_t1a.sort_values('_dias', ascending=False), show_cols)
+    st.dataframe(t1a_clean.style.set_properties(**{'background-color':'rgba(255,77,106,0.15)'}).format(FMT),
+        use_container_width=True, height=350)
 else:
-    st.success("✅ Nenhum processo vencido ou vencendo nos próximos 10 dias!")
+    st.success("✅ Nenhum processo vencido!")
+
+# Tabela 1b: Vencendo em 10 dias
+n_t1b = len(df_t1b)
+st.markdown(f"""<div style='background:linear-gradient(135deg,#1e1000,#2e1800);border:1.5px solid #ffd43b;border-radius:12px;padding:16px 20px;margin:24px 0 4px 0'>
+    <span style='color:#ffd43b;font-size:1.1rem;font-weight:700'>🟡 ATENÇÃO — Vencendo nos Próximos 10 Dias</span>
+    <span style='color:#ffe066;font-size:0.85rem;margin-left:12px'>({n_t1b} registros)</span><br>
+    <span style='color:#ffe066;font-size:0.8rem'>Ainda dentro do prazo, mas vencerão em breve. Antecipe a ação para evitar atraso.</span>
+</div>""", unsafe_allow_html=True)
+
+if n_t1b > 0:
+    t1b_clean = clean_table(df_t1b.sort_values('_dias_restantes', ascending=True), show_cols)
+    st.dataframe(t1b_clean.style.set_properties(**{'background-color':'rgba(255,212,59,0.10)'}).format(FMT),
+        use_container_width=True, height=300)
+else:
+    st.success("✅ Nenhum processo vencendo nos próximos 10 dias!")
 
 # Tabela 2: Notas sem PC identificado
 if 'Nº PC' in df_display.columns:
