@@ -284,7 +284,7 @@ def format_brl(valor):
 # ══════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════
-EXCEL_PATH = "PENDENCIAS TOTVS BIOFLOR.xlsx"  # Update if filename changes
+EXCEL_PATH = "PENDENCIAS_TOTVS_BIOFLOR.xlsx"  # Update if filename changes
 
 with st.sidebar:
     st.markdown("### 📁 Dados")
