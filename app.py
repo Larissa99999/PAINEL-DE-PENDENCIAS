@@ -561,7 +561,7 @@ col_g1, col_g2 = st.columns(2)
 with col_g1:
     if 'Solicitante' in df_filtered.columns:
         df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
-        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan']))]
+        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan','None']))]
         df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
         # Vencidos
         if 'Vencimento' in df_filtered.columns:
