@@ -462,50 +462,81 @@ if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.
 else:
     com_justificativa = 0
 sem_justificativa = total_itens - com_justificativa
-pct_just_raw = (com_justificativa / total_itens * 100) if total_itens > 0 else 0
-pct_just = round(pct_just_raw, 1)
-pct_just_str = f"{pct_just:.1f}%" if pct_just < 1 and pct_just > 0 else f"{int(pct_just)}%"
-pct_vencidos = int(vencidas / total_itens * 100) if total_itens > 0 else 0
+# ── Helpers de formatação ──
+def fmt_pct(num, den):
+    if den == 0 or num == 0: return '0%'
+    p = num / den * 100
+    return f'{p:.1f}%' if p < 1 else f'{round(p)}%'
 
-# ── Linha 1: os 3 mais críticos em destaque ──
+def fmt_sub_pct(num, den, label='do total'):
+    p = fmt_pct(num, den)
+    return f'{p} {label}' if num > 0 else 'nenhum registro'
+
+pct_vencidos_str = fmt_pct(vencidas, total_itens)
+pct_entrega_str  = fmt_pct(entrega_enc, total_itens)
+pct_just_str     = fmt_pct(com_justificativa, total_itens)
+
+# ── Linha 1: KPIs críticos ──
 st.markdown("""<style>
 .big-card {
     background: linear-gradient(135deg, #1a1f2e 0%, #252b3b 100%);
-    border-radius: 16px; padding: 28px 20px;
+    border-radius: 16px; padding: 24px 20px;
     border: 1px solid rgba(255,255,255,0.06);
-    text-align: center;
+    text-align: center; height: 100%;
 }
-.big-card .label { font-size: 0.75rem; color: #8892a4; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
-.big-card .value { font-size: 2.6rem; font-weight: 700; line-height: 1.15; margin: 6px 0 2px 0; }
-.big-card .sub { font-size: 0.78rem; color: #8892a4; }
-.big-card.critical { border: 1.5px solid rgba(255,77,106,0.4); background: linear-gradient(135deg, #2a1520 0%, #2e1a26 100%); }
-.big-card.warning { border: 1.5px solid rgba(177,151,252,0.35); background: linear-gradient(135deg, #1e1a2e 0%, #231f35 100%); }
+.big-card .label { font-size: 0.72rem; color: #8892a4; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+.big-card .value { font-size: 2.4rem; font-weight: 700; line-height: 1.2; margin: 8px 0 4px 0; }
+.big-card .pct   { font-size: 1rem; font-weight: 500; opacity: 0.75; margin-left: 6px; }
+.big-card .sub   { font-size: 0.78rem; color: #8892a4; margin-top: 4px; }
+.big-card.critical { border: 1.5px solid rgba(255,77,106,0.5); background: linear-gradient(135deg, #2a1520, #3a1a28); }
+.big-card.warning  { border: 1.5px solid rgba(177,151,252,0.4); background: linear-gradient(135deg, #1e1a2e, #261f3a); }
+.big-card.success  { border: 1.5px solid rgba(81,207,102,0.4); background: linear-gradient(135deg, #0f2218, #152e1f); }
+.big-card.neutral  { border: 1.5px solid rgba(255,255,255,0.08); }
 </style>""", unsafe_allow_html=True)
 
 r1c1, r1c2, r1c3 = st.columns(3)
 with r1c1:
     st.markdown(f"""<div class="big-card critical">
         <div class="label">🚨 Processos Vencidos</div>
-        <div class="value" style="color:#ff4d6a">{vencidas} <span style="font-size:1.1rem">({pct_vencidos}%)</span></div>
-        <div class="sub">Valor: {format_brl(valor_vencido)} &nbsp;|&nbsp; Maior atraso: {maior_atraso_kpi} dias</div>
+        <div class="value" style="color:#ff4d6a">{vencidas}
+            <span class="pct" style="color:#ff8080">({pct_vencidos_str})</span>
+        </div>
+        <div class="sub">
+            Valor em atraso: <strong style="color:#ff4d6a">{format_brl(valor_vencido)}</strong><br>
+            Maior atraso: <strong>{maior_atraso_kpi} dias</strong>
+        </div>
     </div>""", unsafe_allow_html=True)
+
 with r1c2:
     st.markdown(f"""<div class="big-card warning">
         <div class="label">📦 Prazo de Entrega Encerrado</div>
-        <div class="value" style="color:#b197fc">{entrega_enc}</div>
-        <div class="sub">de {total_itens} pendências no filtro atual</div>
+        <div class="value" style="color:#b197fc">{entrega_enc}
+            <span class="pct" style="color:#c9b0ff">({pct_entrega_str})</span>
+        </div>
+        <div class="sub">
+            Aguardando entrega/NF<br>
+            de <strong>{total_itens}</strong> pendências no filtro
+        </div>
     </div>""", unsafe_allow_html=True)
+
 with r1c3:
-    cor_just = '#ff4d6a' if pct_just < 30 else '#ff8c42' if pct_just < 60 else '#51cf66'
-    st.markdown(f"""<div class="big-card">
+    cor_just = '#51cf66' if com_justificativa > 0 else '#8892a4'
+    card_class = 'success' if com_justificativa > 0 else 'neutral'
+    pendentes_txt = f"{sem_justificativa} sem justificativa" if sem_justificativa > 0 else "todas justificadas ✅"
+    st.markdown(f"""<div class="big-card {card_class}">
         <div class="label">✅ Justificativas Preenchidas</div>
-        <div class="value" style="color:{cor_just}">{com_justificativa} <span style="font-size:1rem;color:#8892a4">de {total_itens}</span></div>
-        <div class="sub">{pct_just_str} concluído &nbsp;|&nbsp; {sem_justificativa} pendentes</div>
+        <div class="value" style="color:{cor_just}">{com_justificativa}
+            <span class="pct" style="color:#8892a4">de {total_itens}</span>
+        </div>
+        <div class="sub">
+            <strong style="color:{cor_just}">{pct_just_str}</strong> concluído<br>
+            {pendentes_txt}
+        </div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Linha 2: resumo geral ──
+# ── Linha 2: Em aprovação ──
 em_aprovacao = 0
 if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
@@ -516,21 +547,26 @@ if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Ven
     mask_aprov = (df_filtered['Controle'].astype(str).str.upper().str.startswith('B')) & (df_filtered['Vencimento'] < agora_aprov)
     valor_em_aprovacao = df_filtered[mask_aprov]['Valor'].sum()
 
+pct_aprov_str = fmt_pct(em_aprovacao, total_itens)
+
 r2c1, r2c2, r2c3 = st.columns(3)
 with r2c1:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">💸 Valor Total Vencido</div>
         <div class="metric-value color-red" style="font-size:1.1rem">{format_brl(valor_vencido)}</div>
+        <div style="font-size:0.75rem;color:#8892a4;margin-top:4px">{pct_vencidos_str} do valor total</div>
     </div>""", unsafe_allow_html=True)
 with r2c2:
     st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
-        <div class="metric-label" style="color:#4dabf7">⏳ Qtd Em Aprovação (B)</div>
+        <div class="metric-label" style="color:#4dabf7">⏳ Em Aprovação (B)</div>
         <div class="metric-value" style="color:#4dabf7;font-size:2rem">{em_aprovacao}</div>
+        <div style="font-size:0.75rem;color:#4dabf7;margin-top:4px;opacity:0.8">{pct_aprov_str} do total de pendências</div>
     </div>""", unsafe_allow_html=True)
 with r2c3:
     st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
-        <div class="metric-label" style="color:#4dabf7">💰 Valor Vencido Em Aprovação (B)</div>
+        <div class="metric-label" style="color:#4dabf7">💰 Valor Vencido Em Aprovação</div>
         <div class="metric-value" style="color:#4dabf7;font-size:1.1rem">{format_brl(valor_em_aprovacao)}</div>
+        <div style="font-size:0.75rem;color:#4dabf7;margin-top:4px;opacity:0.8">vencidos aguardando aprovação (B)</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
