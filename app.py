@@ -448,8 +448,9 @@ if 'Dt Entrega PC' in df_filtered.columns:
 
 just_df = load_justificativas()
 if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.columns:
-    pcs_com_just = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'', 'nan', 'None', '—'}
-    com_justificativa = len(df_filtered[df_filtered['Nº PC'].astype(str).str.strip().isin(pcs_com_just)]) if pcs_com_just else 0
+    pcs_com_just = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'', 'nan', 'None', '—'}
+    df_pcs = df_filtered['Nº PC'].astype(str).str.strip().str.lstrip('0')
+    com_justificativa = len(df_filtered[df_pcs.isin(pcs_com_just)]) if pcs_com_just else 0
 else:
     com_justificativa = 0
 sem_justificativa = total_itens - com_justificativa
@@ -496,41 +497,24 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Linha 2: resumo geral ──
 em_aprovacao = 0
-aprovados = 0
 if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
-    aprovados = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('L')])
 
-r2c1, r2c2, r2c3, r2c4, r2c5, r2c6 = st.columns(6)
+r2c1, r2c2, r2c3 = st.columns(3)
 with r2c1:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Total de Pendências</div>
-        <div class="metric-value color-blue">{total_itens}</div>
-    </div>""", unsafe_allow_html=True)
-with r2c2:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Total</div>
         <div class="metric-value color-green" style="font-size:1.1rem">{format_brl(total_valor)}</div>
     </div>""", unsafe_allow_html=True)
-with r2c3:
+with r2c2:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Vencido</div>
-        <div class="metric-value color-red" style="font-size:1.4rem">{format_brl(valor_vencido)}</div>
+        <div class="metric-value color-red" style="font-size:1.1rem">{format_brl(valor_vencido)}</div>
     </div>""", unsafe_allow_html=True)
-with r2c4:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">Sem Justificativa</div>
-        <div class="metric-value color-orange">{sem_justificativa}</div>
-    </div>""", unsafe_allow_html=True)
-with r2c5:
+with r2c3:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">⏳ Em Aprovação (B)</div>
         <div class="metric-value color-orange">{em_aprovacao}</div>
-    </div>""", unsafe_allow_html=True)
-with r2c6:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">✅ Aprovados (L)</div>
-        <div class="metric-value color-green">{aprovados}</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -553,13 +537,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 
 st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante</div>', unsafe_allow_html=True)
-st.markdown("""<div style='display:flex;gap:20px;padding:8px 4px;flex-wrap:wrap;font-size:0.82rem'>
-    <span><span style='display:inline-block;width:12px;height:12px;background:#ff4d6a;border-radius:3px;margin-right:5px'></span>≥80% vencido</span>
-    <span><span style='display:inline-block;width:12px;height:12px;background:#ff8c42;border-radius:3px;margin-right:5px'></span>Parcialmente vencido</span>
-    <span><span style='display:inline-block;width:12px;height:12px;background:#b197fc;border-radius:3px;margin-right:5px'></span>Entrega encerrada</span>
-    <span><span style='display:inline-block;width:12px;height:12px;background:#51cf66;border-radius:3px;margin-right:5px'></span>Com justificativa</span>
-    <span><span style='display:inline-block;width:12px;height:12px;background:#4dabf7;border-radius:3px;margin-right:5px'></span>Pendente normal</span>
-</div>""", unsafe_allow_html=True)
+
 
 agora_kpi = pd.Timestamp.now().normalize()
 col_g1, col_g2 = st.columns(2)
@@ -594,9 +572,9 @@ with col_g1:
 
         pcs_just_s = set()
         if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base.columns:
-            pcs_just_s = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'','nan','None','—'}
+            pcs_just_s = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
         df_sol['Com_Just'] = df_sol['Solicitante'].apply(
-            lambda s: base[base['Solicitante']==s]['Nº PC'].astype(str).str.strip().isin(pcs_just_s).sum() if pcs_just_s else 0)
+            lambda s: base[base['Solicitante']==s]['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_just_s).sum() if pcs_just_s else 0)
 
         df_sol['Pct_Vencido']  = (df_sol['Vencidos']    / df_sol['Qtd'] * 100).round(0).astype(int)
         df_sol['Pct_Entrega']  = (df_sol['Entrega_Enc'] / df_sol['Qtd'] * 100).round(0).astype(int)
@@ -662,9 +640,9 @@ with col_g2:
 
         pcs_just_c = set()
         if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base2.columns:
-            pcs_just_c = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'','nan','None','—'}
+            pcs_just_c = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
         df_comp['Com_Just'] = df_comp['Comprador'].apply(
-            lambda c: base2[base2['Comprador']==c]['Nº PC'].astype(str).str.strip().isin(pcs_just_c).sum() if pcs_just_c else 0)
+            lambda c: base2[base2['Comprador']==c]['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_just_c).sum() if pcs_just_c else 0)
 
         df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(0).astype(int)
         df_comp['Pct_Entrega'] = (df_comp['Qtd_Entrega']   / df_comp['Qtd']   * 100).round(0).astype(int)
@@ -719,8 +697,14 @@ just_df = load_justificativas()
 if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
     just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
     just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
-    just_cols_main['Nº PC'] = just_cols_main['Nº PC'].astype(str).str.strip()
-    df_display = df_filtered.merge(just_cols_main, on='Nº PC', how='left') if 'Nº PC' in df_filtered.columns else df_filtered.copy()
+    just_cols_main['Nº PC'] = just_cols_main['Nº PC'].astype(str).str.strip().str.lstrip('0')
+    df_filtered_merge = df_filtered.copy()
+    if 'Nº PC' in df_filtered_merge.columns:
+        df_filtered_merge['Nº PC_norm'] = df_filtered_merge['Nº PC'].astype(str).str.strip().str.lstrip('0')
+        just_cols_main = just_cols_main.rename(columns={'Nº PC': 'Nº PC_norm'})
+        df_display = df_filtered_merge.merge(just_cols_main, on='Nº PC_norm', how='left').drop(columns=['Nº PC_norm'])
+    else:
+        df_display = df_filtered.copy()
 else:
     df_display = df_filtered.copy()
 
