@@ -209,9 +209,10 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
 
 
 def parse_valor(v):
-    if pd.isna(v) or str(v).strip() in ["", "—", "-"]:
+    if pd.isna(v) or str(v).strip() in ["", "—", "-", "nan"]:
         return 0.0
-    s = str(v).replace("R$", "").replace("r$", "").strip()
+    s = str(v).replace("R$", "").replace("r$", "").replace("R$","").strip()
+    s = s.replace(" ", "")
     if "," in s and "." in s:
         s = s.replace(".", "").replace(",", ".")
     elif "," in s:
@@ -266,6 +267,8 @@ def load_data(file):
     if "Valor" in df.columns:
         df["Valor"] = df["Valor"].apply(parse_valor)
     if "Vencimento" in df.columns:
+        # Clean 'VENCIDA Xd' prefix - extract just the date part
+        df["Vencimento"] = df["Vencimento"].astype(str).str.extract(r'(\d{2}/\d{2}/\d{4})')[0].fillna(df["Vencimento"])
         df["Vencimento"] = pd.to_datetime(df["Vencimento"], dayfirst=True, errors="coerce")
     if "Dias" in df.columns:
         df["Dias"] = pd.to_numeric(df["Dias"].replace("—", ""), errors="coerce").fillna(0).astype(int)
@@ -545,7 +548,7 @@ PLOT_LAYOUT = dict(
 # KPIs + PAINEL: NOTAS PENDENTES DE LANÇAMENTO (SF1)
 # ══════════════════════════════════════════════════════════════════════
 if 'Status' in df_filtered.columns:
-    df_sf1 = df_filtered[df_filtered['Status'].str.upper().str.contains('PENDENTE SF1|SF1', na=False)].copy()
+    df_sf1 = df_filtered[df_filtered['Status'].notna() & (df_filtered['Status'].astype(str) != '—')].copy()
     tem_pc = df_sf1['Nº PC'].notna() & (~df_sf1['Nº PC'].isin(['', '—', 'nan'])) if 'Nº PC' in df_sf1.columns else pd.Series([False]*len(df_sf1))
     df_com_pc  = df_sf1[tem_pc]
     df_sem_pc  = df_sf1[~tem_pc]
