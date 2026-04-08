@@ -553,7 +553,13 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 
 st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante</div>', unsafe_allow_html=True)
-st.caption("🔴 Vencido · 🟣 Entrega encerrada (não vencido) · 🟢 Com justificativa · 🔵 Pendente normal")
+st.markdown("""<div style='display:flex;gap:20px;padding:8px 4px;flex-wrap:wrap;font-size:0.82rem'>
+    <span><span style='display:inline-block;width:12px;height:12px;background:#ff4d6a;border-radius:3px;margin-right:5px'></span>≥80% vencido</span>
+    <span><span style='display:inline-block;width:12px;height:12px;background:#ff8c42;border-radius:3px;margin-right:5px'></span>Parcialmente vencido</span>
+    <span><span style='display:inline-block;width:12px;height:12px;background:#b197fc;border-radius:3px;margin-right:5px'></span>Entrega encerrada</span>
+    <span><span style='display:inline-block;width:12px;height:12px;background:#51cf66;border-radius:3px;margin-right:5px'></span>Com justificativa</span>
+    <span><span style='display:inline-block;width:12px;height:12px;background:#4dabf7;border-radius:3px;margin-right:5px'></span>Pendente normal</span>
+</div>""", unsafe_allow_html=True)
 
 agora_kpi = pd.Timestamp.now().normalize()
 col_g1, col_g2 = st.columns(2)
@@ -599,15 +605,22 @@ with col_g1:
         df_sol = df_sol.sort_values('Qtd', ascending=True)
 
         fig1 = go.Figure()
+        def label_sol(r):
+            parts = [f"Total: {r['Qtd']}"]
+            if r['Pct_Vencido'] > 0: parts.append(f"🔴 {r['Pct_Vencido']}% venc.")
+            if r['Pct_Entrega'] > 0: parts.append(f"🟣 {r['Pct_Entrega']}% entr.enc.")
+            if r['Pct_Just'] > 0:    parts.append(f"🟢 {r['Pct_Just']}% justif.")
+            return " | ".join(parts)
+
         fig1.add_trace(go.Bar(
             y=df_sol['Solicitante'],
             x=df_sol['Qtd'],
             orientation='h',
             marker=dict(color=df_sol['Cor'].tolist()),
-            text=[f"{r['Qtd']} | {r['Pct_Vencido']}% venc." for _, r in df_sol.iterrows()],
+            text=[label_sol(r) for _, r in df_sol.iterrows()],
             textposition='inside',
-            textfont=dict(size=11, color='white'),
-            hovertemplate='<b>%{y}</b><br>Total: %{x}<extra></extra>'
+            textfont=dict(size=10, color='white'),
+            hovertemplate='<b>%{y}</b><br>%{text}<extra></extra>'
         ))
         fig1.update_layout(**PLOT_LAYOUT)
         fig1.update_layout(
@@ -652,15 +665,22 @@ with col_g2:
         df_comp = df_comp.sort_values('Valor', ascending=True)
 
         fig2 = go.Figure()
+        def label_comp(r):
+            parts = [format_brl(r['Valor'])]
+            if r['Pct_Vencido'] > 0: parts.append(f"🔴 {r['Pct_Vencido']}% venc.")
+            if r['Pct_Entrega'] > 0: parts.append(f"🟣 {r['Pct_Entrega']}% entr.enc.")
+            if r['Pct_Just'] > 0:    parts.append(f"🟢 {r['Pct_Just']}% justif.")
+            return " | ".join(parts)
+
         fig2.add_trace(go.Bar(
             y=df_comp['Comprador'],
             x=df_comp['Valor'],
             orientation='h',
             marker=dict(color=df_comp['Cor'].tolist()),
-            text=[f"{format_brl(r['Valor'])} | {r['Pct_Vencido']}% venc." for _, r in df_comp.iterrows()],
+            text=[label_comp(r) for _, r in df_comp.iterrows()],
             textposition='inside',
             textfont=dict(size=10, color='white'),
-            hovertemplate='<b>%{y}</b><br>Valor: R$ %{x:,.2f}<extra></extra>'
+            hovertemplate='<b>%{y}</b><br>%{text}<extra></extra>'
         ))
         fig2.update_layout(**PLOT_LAYOUT)
         fig2.update_layout(
@@ -673,3 +693,162 @@ with col_g2:
         st.plotly_chart(fig2, use_container_width=True)
 
 
+
+# ══════════════════════════════════════════════════════════════════════
+# TABELAS SEPARADAS POR PRIORIDADE
+# ══════════════════════════════════════════════════════════════════════
+just_df = load_justificativas()
+if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
+    just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
+    just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
+    just_cols_main['Nº PC'] = just_cols_main['Nº PC'].astype(str).str.strip()
+    df_display = df_filtered.merge(just_cols_main, on='Nº PC', how='left') if 'Nº PC' in df_filtered.columns else df_filtered.copy()
+else:
+    df_display = df_filtered.copy()
+
+for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
+    if col in df_display.columns:
+        df_display[col] = df_display[col].fillna('').replace({'None':'','nan':'','NaT':''})
+
+show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
+
+FMT = {
+    'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x,
+    'Dt Emissão': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
+    'Dt Entrega PC': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
+    'Vencimento': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
+}
+
+def clean_table(df, cols):
+    d = df[[c for c in cols if c in df.columns]].copy()
+    for c in d.columns:
+        d[c] = d[c].replace({'None':'','nan':'','NaT':''}).fillna('')
+    return d
+
+agora_tab = pd.Timestamp.now()
+em_10_dias = agora_tab + pd.Timedelta(days=10)
+
+# Tabela 1: Vencidos ou vencendo em 10 dias
+if 'Vencimento' in df_display.columns:
+    venc_s = pd.to_datetime(df_display['Vencimento'], dayfirst=True, errors='coerce')
+    mask_t1 = venc_s <= em_10_dias
+    df_t1 = df_display[mask_t1].copy()
+    df_t1['_dias'] = (agora_tab - pd.to_datetime(df_t1['Vencimento'], dayfirst=True, errors='coerce')).dt.days.fillna(0).astype(int)
+    ids_t1 = set(df_t1.index)
+else:
+    df_t1 = pd.DataFrame()
+    ids_t1 = set()
+
+n_t1 = len(df_t1)
+st.markdown(f"""<div style='background:linear-gradient(135deg,#2a0e0e,#3a1010);border:1.5px solid #ff4d6a;border-radius:12px;padding:16px 20px;margin:24px 0 4px 0'>
+    <span style='color:#ff4d6a;font-size:1.1rem;font-weight:700'>🔴 ATENÇÃO IMEDIATA — Vencidos ou Vencendo nos Próximos 10 Dias</span>
+    <span style='color:#f08090;font-size:0.85rem;margin-left:12px'>({n_t1} registros)</span><br>
+    <span style='color:#f08090;font-size:0.8rem'>Processos que exigem ação urgente. Vermelho = já vencido · Laranja = vence em breve.</span>
+</div>""", unsafe_allow_html=True)
+
+if n_t1 > 0:
+    def hl_t1(row):
+        dias = df_t1.loc[row.name, '_dias'] if row.name in df_t1.index else 0
+        if dias > 0:
+            return ['background-color: rgba(255,77,106,0.22)'] * len(row)
+        return ['background-color: rgba(255,140,66,0.15)'] * len(row)
+    t1_clean = clean_table(df_t1.sort_values('_dias', ascending=False), show_cols)
+    st.dataframe(t1_clean.style.apply(hl_t1, axis=1).format(FMT), use_container_width=True, height=350)
+else:
+    st.success("✅ Nenhum processo vencido ou vencendo nos próximos 10 dias!")
+
+# Tabela 2: Notas sem PC identificado
+if 'Nº PC' in df_display.columns:
+    sem_pc = df_display['Nº PC'].astype(str).str.strip().isin(['','—','nan','None'])
+    df_t2 = df_display[sem_pc & ~df_display.index.isin(ids_t1)].copy()
+else:
+    df_t2 = pd.DataFrame()
+ids_t2 = set(df_t2.index)
+n_t2 = len(df_t2)
+
+st.markdown(f"""<div style='background:linear-gradient(135deg,#1e1208,#2e1c10);border:1.5px solid #ff8c42;border-radius:12px;padding:16px 20px;margin:24px 0 4px 0'>
+    <span style='color:#ff8c42;font-size:1.1rem;font-weight:700'>🟠 PENDENTE DE VÍNCULO — Notas Sem PC Identificado</span>
+    <span style='color:#ffa570;font-size:0.85rem;margin-left:12px'>({n_t2} registros)</span><br>
+    <span style='color:#ffa570;font-size:0.8rem'>Notas fiscais sem pedido de compra associado. Necessitam regularização urgente.</span>
+</div>""", unsafe_allow_html=True)
+
+if n_t2 > 0:
+    t2_clean = clean_table(df_t2, show_cols)
+    st.dataframe(t2_clean.style.set_properties(**{'background-color':'rgba(255,140,66,0.10)'}).format(FMT), use_container_width=True, height=300)
+else:
+    st.success("✅ Todas as notas possuem PC identificado!")
+
+# Tabela 3: Demais pendências
+df_t3 = df_display[~df_display.index.isin(ids_t1 | ids_t2)].copy()
+n_t3 = len(df_t3)
+
+st.markdown(f"""<div style='background:linear-gradient(135deg,#111827,#1a2035);border:1.5px solid #4dabf7;border-radius:12px;padding:16px 20px;margin:24px 0 4px 0'>
+    <span style='color:#4dabf7;font-size:1.1rem;font-weight:700'>📋 ACOMPANHAMENTO — Demais Pendências de Atendimento</span>
+    <span style='color:#8ab8d4;font-size:0.85rem;margin-left:12px'>({n_t3} registros)</span><br>
+    <span style='color:#8ab8d4;font-size:0.8rem'>Processos em andamento. Monitore para evitar evolução para atraso.</span>
+</div>""", unsafe_allow_html=True)
+
+if n_t3 > 0:
+    t3_clean = clean_table(df_t3, show_cols)
+    st.dataframe(t3_clean.style.format(FMT), use_container_width=True, height=350)
+else:
+    st.info("Sem demais pendências.")
+
+df_display_export = df_display.copy()
+
+# ══════════════════════════════════════════════════════════════════════
+# FORMULÁRIO DE JUSTIFICATIVA
+# ══════════════════════════════════════════════════════════════════════
+st.markdown('<div class="section-title">✏️ Preencher Justificativa</div>', unsafe_allow_html=True)
+
+def label_pend(r):
+    pc = str(r.get('Nº PC', '')).strip()
+    nota = str(r.get('Nº Nota', '')).strip()
+    forn = str(r.get('Fornecedor', '?'))[:35].strip()
+    pc_str = f"PC:{pc}" if pc and pc not in ['—', '', 'nan'] else ''
+    nota_str = f"NF:{nota}" if nota and nota not in ['—', '', 'nan'] else ''
+    ref = ' | '.join(filter(None, [pc_str, nota_str]))
+    return f"{ref} — {forn}" if ref else f"#{r['ID']} — {forn}"
+opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
+
+with st.form("form_justificativa", clear_on_submit=True):
+    col_form1, col_form2 = st.columns([1, 2])
+    with col_form1:
+        responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
+        sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
+        sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
+        prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
+    with col_form2:
+        observacao = st.text_area("Observação adicional", height=160,
+                                  placeholder="Descreva detalhes adicionais sobre esta pendência...")
+        submitted = st.form_submit_button("💾  Salvar Justificativa", type="primary", use_container_width=True)
+
+    if submitted:
+        if sel_pendencia == "— Selecione —":
+            st.error("⚠️ Selecione uma pendência!")
+        elif sel_justificativa == "— Selecione —":
+            st.error("⚠️ Selecione um motivo!")
+        elif prazo_resolucao is None:
+            st.error("⚠️ Informe o prazo previsto para resolução/entrega!")
+        else:
+            idx_sel = opcoes_pend.index(sel_pendencia)
+            row = df_filtered.iloc[idx_sel]
+            row_id = str(row.get('ID', idx_sel))
+            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=responsavel, df_ref=df_filtered)
+            st.success("✅ Justificativa salva com sucesso!")
+            load_justificativas.clear()
+            st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════
+# EXPORTAR
+# ══════════════════════════════════════════════════════════════════════
+st.markdown("---")
+col_exp1, col_exp2, _ = st.columns([1,1,2])
+with col_exp1:
+    exp_cols = [c for c in show_cols if c in df_display_export.columns]
+    csv_data = df_display_export[exp_cols].to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 Exportar Dados (CSV)", csv_data, "pendencias_com_justificativas.csv", "text/csv")
+with col_exp2:
+    if len(just_df) > 0:
+        just_csv = just_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
