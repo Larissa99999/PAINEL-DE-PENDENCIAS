@@ -607,7 +607,7 @@ with col_g1:
         # Calcula segmentos sem sobreposição
         df_sol['Seg_Vencido']  = df_sol['Vencidos'].astype(int)
         df_sol['Seg_Entrega']  = (df_sol['Entrega_Enc'] - df_sol['Vencidos']).clip(lower=0).astype(int)
-        df_sol['Seg_Just']     = df_sol['Com_Just_Qtd'].astype(int)
+        df_sol['Seg_Just']     = df_sol['Com_Just'].astype(int) if 'Com_Just' in df_sol.columns else 0
         df_sol['Seg_Normal']   = (df_sol['Qtd'] - df_sol['Seg_Vencido'] - df_sol['Seg_Entrega'] - df_sol['Seg_Just']).clip(lower=0).astype(int)
 
         fig1 = go.Figure()
