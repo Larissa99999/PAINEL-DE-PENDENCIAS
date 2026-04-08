@@ -594,11 +594,24 @@ with col_g1:
         df_sol['Cor'] = df_sol.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_sol = df_sol.sort_values('Qtd', ascending=True)
 
-        # Calcula segmentos sem sobreposição
-        df_sol['Seg_Vencido']  = df_sol['Vencidos'].astype(int)
-        df_sol['Seg_Entrega']  = (df_sol['Entrega_Enc'] - df_sol['Vencidos']).clip(lower=0).astype(int)
-        df_sol['Seg_Just']     = df_sol['Com_Just'].astype(int) if 'Com_Just' in df_sol.columns else 0
-        df_sol['Seg_Normal']   = (df_sol['Qtd'] - df_sol['Seg_Vencido'] - df_sol['Seg_Entrega'] - df_sol['Seg_Just']).clip(lower=0).astype(int)
+        # Segmentos mutuamente exclusivos por solicitante (sem dupla contagem)
+        # Prioridade: Vencido > Entrega enc. > Com Just > Normal
+        df_sol['Seg_Vencido'] = 0
+        df_sol['Seg_Entrega'] = 0
+        df_sol['Seg_Just']    = 0
+        df_sol['Seg_Normal']  = 0
+        pcs_j = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
+        for sol in df_sol['Solicitante']:
+            rows_s = base[base['Solicitante'] == sol]
+            venc_m = rows_s['Vencimento'] < agora_kpi if 'Vencimento' in rows_s.columns else pd.Series([False]*len(rows_s))
+            entr_m = (rows_s['Dt Entrega PC'] < agora_kpi) & ~venc_m if 'Dt Entrega PC' in rows_s.columns else pd.Series([False]*len(rows_s))
+            just_m = rows_s['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) & ~venc_m & ~entr_m if 'Nº PC' in rows_s.columns else pd.Series([False]*len(rows_s))
+            norm_m = ~venc_m & ~entr_m & ~just_m
+            idx = df_sol[df_sol['Solicitante']==sol].index[0]
+            df_sol.at[idx, 'Seg_Vencido'] = int(venc_m.sum())
+            df_sol.at[idx, 'Seg_Entrega'] = int(entr_m.sum())
+            df_sol.at[idx, 'Seg_Just']    = int(just_m.sum())
+            df_sol.at[idx, 'Seg_Normal']  = int(norm_m.sum())
 
         fig1 = go.Figure()
         for seg, cor, nome in [
@@ -662,13 +675,20 @@ with col_g2:
         df_comp['Cor'] = df_comp.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_comp = df_comp.sort_values('Valor', ascending=True)
 
-        # Calcula segmentos de valor sem sobreposição
-        df_comp['Seg_Vencido']  = df_comp['Valor_Vencido']
-        df_comp['Qtd_Entrega']  = df_comp['Qtd_Entrega'].astype(int)
-        # Valor entrega = proporção das entregas encerradas menos vencidas
-        df_comp['Seg_Entrega']  = ((df_comp['Qtd_Entrega'] - df_comp.get('Qtd_Vencido', 0)).clip(lower=0) / df_comp['Qtd'] * df_comp['Valor']).fillna(0)
-        df_comp['Seg_Just']     = (df_comp['Com_Just'] / df_comp['Qtd'] * df_comp['Valor']).fillna(0)
-        df_comp['Seg_Normal']   = (df_comp['Valor'] - df_comp['Seg_Vencido'] - df_comp['Seg_Entrega'] - df_comp['Seg_Just']).clip(lower=0)
+        # Segmentos mutuamente exclusivos por comprador (sem dupla contagem)
+        # Prioridade: Vencido > Entrega enc. > Com Just > Normal
+        for comp in df_comp['Comprador']:
+            rows_comp = base2[base2['Comprador'] == comp]
+            venc_mask  = rows_comp['Vencimento'] < agora_kpi if 'Vencimento' in rows_comp.columns else pd.Series([False]*len(rows_comp))
+            entr_mask  = (rows_comp['Dt Entrega PC'] < agora_kpi) & ~venc_mask if 'Dt Entrega PC' in rows_comp.columns else pd.Series([False]*len(rows_comp))
+            pcs_norm   = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
+            just_mask  = rows_comp['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_norm) & ~venc_mask & ~entr_mask if 'Nº PC' in rows_comp.columns else pd.Series([False]*len(rows_comp))
+            norm_mask  = ~venc_mask & ~entr_mask & ~just_mask
+            idx = df_comp[df_comp['Comprador']==comp].index[0]
+            df_comp.at[idx, 'Seg_Vencido'] = rows_comp[venc_mask]['Valor'].sum()
+            df_comp.at[idx, 'Seg_Entrega'] = rows_comp[entr_mask]['Valor'].sum()
+            df_comp.at[idx, 'Seg_Just']    = rows_comp[just_mask]['Valor'].sum()
+            df_comp.at[idx, 'Seg_Normal']  = rows_comp[norm_mask]['Valor'].sum()
 
         fig2 = go.Figure()
         for seg, cor, nome in [
