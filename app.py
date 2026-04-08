@@ -25,13 +25,13 @@ st.markdown("""
     .main { background-color: #0e1117; }
     .metric-card {
         background: linear-gradient(135deg, #1a1f2e 0%, #252b3b 100%);
-        border-radius: 16px; padding: 24px;
+        border-radius: 16px; padding: 16px 10px;
         border: 1px solid rgba(255,255,255,0.06);
         text-align: center; transition: transform 0.2s;
     }
     .metric-card:hover { transform: translateY(-2px); }
-    .metric-value { font-size: 2.2rem; font-weight: 700; margin: 4px 0; line-height: 1.1; }
-    .metric-label { font-size: 0.8rem; color: #8892a4; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+    .metric-value { font-size: 1.6rem; font-weight: 700; margin: 4px 0; line-height: 1.2; word-break: break-word; }
+    .metric-label { font-size: 0.7rem; color: #8892a4; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; word-break: break-word; }
     .color-orange { color: #ff8c42; }
     .color-red { color: #ff4d6a; }
     .color-blue { color: #4dabf7; }
@@ -353,30 +353,21 @@ with st.sidebar:
     else:
         sel_aprovacao = "Todos"
 
-    # Filtro por vencimento
-    st.markdown("#### 📅 Vencimento")
-    if 'Vencimento' in df.columns:
-        venc_min = df['Vencimento'].min()
-        venc_max = df['Vencimento'].max()
-        if pd.notna(venc_min) and pd.notna(venc_max):
-            data_de = st.date_input("De", value=venc_min.date(), key="venc_de")
-            data_ate = st.date_input("Até", value=venc_max.date(), key="venc_ate")
-        else:
-            data_de = None
-            data_ate = None
-    else:
-        data_de = None
-        data_ate = None
+    data_de = None
+    data_ate = None
 
     # Filtro por data de emissão
     st.markdown("#### 🧾 Dt Emissão")
     if 'Dt Emissão' in df.columns:
         df['Dt Emissão'] = pd.to_datetime(df['Dt Emissão'], dayfirst=True, errors='coerce')
-        emiss_min = df['Dt Emissão'].min()
-        emiss_max = df['Dt Emissão'].max()
-        if pd.notna(emiss_min) and pd.notna(emiss_max):
-            emiss_de = st.date_input("De", value=emiss_min.date(), key="emiss_de")
-            emiss_ate = st.date_input("Até", value=emiss_max.date(), key="emiss_ate")
+        # Only use dates within reasonable range (ignore future/invalid dates)
+        emiss_validas = df['Dt Emissão'].dropna()
+        emiss_validas = emiss_validas[emiss_validas.dt.year <= pd.Timestamp.now().year + 1]
+        if len(emiss_validas) > 0:
+            emiss_min = emiss_validas.min()
+            emiss_max = emiss_validas.max()
+            emiss_de = st.date_input("De", value=emiss_min.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_de")
+            emiss_ate = st.date_input("Até", value=emiss_max.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_ate")
         else:
             emiss_de = None
             emiss_ate = None
