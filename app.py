@@ -402,11 +402,13 @@ with st.sidebar:
         ]
     if emiss_de and emiss_ate and 'Dt Emissão' in df_filtered.columns:
         df_filtered['Dt Emissão'] = pd.to_datetime(df_filtered['Dt Emissão'], dayfirst=True, errors='coerce')
+        emiss_de_ts = pd.Timestamp(emiss_de)
+        emiss_ate_ts = pd.Timestamp(emiss_ate)
         mask_emiss = (
-            df_filtered['Dt Emissão'].isna() |  # include records with no emissão date
+            df_filtered['Dt Emissão'].isna() |
             (
-                (df_filtered['Dt Emissão'].dt.date >= emiss_de) &
-                (df_filtered['Dt Emissão'].dt.date <= emiss_ate)
+                (df_filtered['Dt Emissão'] >= emiss_de_ts) &
+                (df_filtered['Dt Emissão'] <= emiss_ate_ts)
             )
         )
         df_filtered = df_filtered[mask_emiss]
