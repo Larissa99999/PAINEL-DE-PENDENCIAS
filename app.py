@@ -699,6 +699,7 @@ if 'Vencimento' in df_filtered.columns:
     agora = pd.Timestamp.now().normalize()
     df_vencidos = df_filtered[df_filtered['Vencimento'] < agora].copy()
     df_vencidos['Dias_Atraso'] = (agora - df_vencidos['Vencimento']).dt.days
+    df_vencidos['Dias_Atraso'] = df_vencidos['Dias_Atraso'].fillna(0).astype(int)
 
     if len(df_vencidos) == 0:
         st.success("✅ Nenhum processo vencido no filtro atual!")
@@ -779,28 +780,30 @@ st.dataframe(
 # FORMULÁRIO DE JUSTIFICATIVA
 # ══════════════════════════════════════════════════════════════════════
 st.markdown('<div class="section-title">✏️ Preencher Justificativa</div>', unsafe_allow_html=True)
-col_form1, col_form2 = st.columns([1, 2])
 
-with col_form1:
-    responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
-    st.session_state['responsavel'] = responsavel
-    def label_pend(r):
-        pc = str(r.get('Nº PC', '')).strip()
-        nota = str(r.get('Nº Nota', '')).strip()
-        forn = str(r.get('Fornecedor', '?'))[:35].strip()
-        pc_str = f"PC:{pc}" if pc and pc not in ['—', '', 'nan'] else ''
-        nota_str = f"NF:{nota}" if nota and nota not in ['—', '', 'nan'] else ''
-        ref = ' | '.join(filter(None, [pc_str, nota_str]))
-        return f"{ref} — {forn}" if ref else f"#{r['ID']} — {forn}"
-    opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
-    sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
-    sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
-    prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
+def label_pend(r):
+    pc = str(r.get('Nº PC', '')).strip()
+    nota = str(r.get('Nº Nota', '')).strip()
+    forn = str(r.get('Fornecedor', '?'))[:35].strip()
+    pc_str = f"PC:{pc}" if pc and pc not in ['—', '', 'nan'] else ''
+    nota_str = f"NF:{nota}" if nota and nota not in ['—', '', 'nan'] else ''
+    ref = ' | '.join(filter(None, [pc_str, nota_str]))
+    return f"{ref} — {forn}" if ref else f"#{r['ID']} — {forn}"
+opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
 
-with col_form2:
-    observacao = st.text_area("Observação adicional", height=130,
-                              placeholder="Descreva detalhes adicionais sobre esta pendência...")
-    if st.button("💾  Salvar Justificativa", type="primary", use_container_width=True):
+with st.form("form_justificativa", clear_on_submit=True):
+    col_form1, col_form2 = st.columns([1, 2])
+    with col_form1:
+        responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
+        sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
+        sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
+        prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
+    with col_form2:
+        observacao = st.text_area("Observação adicional", height=160,
+                                  placeholder="Descreva detalhes adicionais sobre esta pendência...")
+        submitted = st.form_submit_button("💾  Salvar Justificativa", type="primary", use_container_width=True)
+
+    if submitted:
         if sel_pendencia == "— Selecione —":
             st.error("⚠️ Selecione uma pendência!")
         elif sel_justificativa == "— Selecione —":
@@ -808,14 +811,12 @@ with col_form2:
         elif prazo_resolucao is None:
             st.error("⚠️ Informe o prazo previsto para resolução/entrega!")
         else:
-            # Extract ID from selection - format is 'PC:XXXXX | NF:XXXXX — FORNECEDOR' or '#ID — FORNECEDOR'
-            if sel_pendencia.startswith('#'):
-                row_id = sel_pendencia.split(" — ")[0].replace("#","").strip()
-            else:
-                row_id = df_filtered.index[opcoes_pend.index(sel_pendencia)]
-                row_id = str(df_filtered.loc[row_id, 'ID']) if 'ID' in df_filtered.columns else str(row_id)
-            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=st.session_state.get('responsavel',''), df_ref=df_filtered)
+            idx_sel = opcoes_pend.index(sel_pendencia)
+            row = df_filtered.iloc[idx_sel]
+            row_id = str(row.get('ID', idx_sel))
+            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=responsavel, df_ref=df_filtered)
             st.success("✅ Justificativa salva com sucesso!")
+            load_justificativas.clear()
             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════
@@ -831,4 +832,3 @@ with col_exp2:
     if len(just_df_exp) > 0:
         just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
-
