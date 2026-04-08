@@ -334,6 +334,31 @@ with st.sidebar:
 
     df = st.session_state['df']
 
+    # ── Calcula situação de cada processo ──
+    agora_sit = pd.Timestamp.now()
+    just_df_sit = load_justificativas()
+    pcs_just_sit = set()
+    if len(just_df_sit) > 0 and 'Nº_PC' in just_df_sit.columns:
+        pcs_just_sit = set(just_df_sit['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
+
+    def calc_situacao(row):
+        venc = row.get('Vencimento', pd.NaT)
+        pc = str(row.get('Nº PC', '')).strip().lstrip('0')
+        tem_just = pc in pcs_just_sit and pc != ''
+        if pd.notna(venc) and venc < agora_sit:
+            if tem_just:
+                return 'Vencido c/ Justificativa'
+            return 'Vencido s/ Justificativa'
+        if 'Dt Entrega PC' in row.index:
+            entr = row.get('Dt Entrega PC', pd.NaT)
+            if pd.notna(entr) and entr < agora_sit:
+                return 'Entrega Encerrada'
+        if tem_just:
+            return 'Em Dia (Justificado)'
+        return 'Pendente'
+
+    df['Situação'] = df.apply(calc_situacao, axis=1)
+
     st.markdown("---")
     st.markdown("### 🔍 Filtros")
 
@@ -343,11 +368,14 @@ with st.sidebar:
     solicitantes = ["Todos"] + sorted([x for x in df['Solicitante'].dropna().unique().tolist() if x not in ['—','']]) if 'Solicitante' in df.columns else ["Todos"]
     sel_solicitante = st.selectbox("Solicitante", solicitantes)
 
-    if 'Status' in df.columns:
-        status_opts = ["Todos"] + sorted([x for x in df['Status'].dropna().unique().tolist() if x not in ['—','']])
-        sel_status = st.selectbox("Status", status_opts)
-    else:
-        sel_status = "Todos"
+    sit_opts = ["Todas"] + [
+        'Vencido s/ Justificativa',
+        'Vencido c/ Justificativa',
+        'Entrega Encerrada',
+        'Em Dia (Justificado)',
+        'Pendente'
+    ]
+    sel_situacao = st.selectbox("🏷️ Situação", sit_opts)
 
     if 'Filial' in df.columns:
         filiais = ["Todas"] + sorted([x for x in df['Filial'].dropna().astype(str).unique().tolist() if x not in ['—','']])
@@ -388,8 +416,8 @@ with st.sidebar:
         df_filtered = df_filtered[df_filtered['Comprador'] == sel_comprador]
     if sel_solicitante != "Todos":
         df_filtered = df_filtered[df_filtered['Solicitante'] == sel_solicitante]
-    if sel_status != "Todos" and 'Status' in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered['Status'] == sel_status]
+    if sel_situacao != "Todas" and 'Situação' in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered['Situação'] == sel_situacao]
     if sel_filial != "Todas" and 'Filial' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['Filial'].astype(str) == sel_filial]
     if sel_aprovacao != "Todos" and 'Controle' in df_filtered.columns:
@@ -476,6 +504,14 @@ pct_vencidos_str = fmt_pct(vencidas, total_itens)
 pct_entrega_str  = fmt_pct(entrega_enc, total_itens)
 pct_just_str     = fmt_pct(com_justificativa, total_itens)
 
+# Situação calculada
+n_venc_sem_just = len(df_filtered[df_filtered['Situação'] == 'Vencido s/ Justificativa']) if 'Situação' in df_filtered.columns else 0
+n_venc_com_just = len(df_filtered[df_filtered['Situação'] == 'Vencido c/ Justificativa']) if 'Situação' in df_filtered.columns else 0
+n_em_dia        = len(df_filtered[df_filtered['Situação'] == 'Em Dia (Justificado)'])      if 'Situação' in df_filtered.columns else 0
+n_entrega_enc   = len(df_filtered[df_filtered['Situação'] == 'Entrega Encerrada'])          if 'Situação' in df_filtered.columns else 0
+val_venc_sem    = df_filtered[df_filtered['Situação'] == 'Vencido s/ Justificativa']['Valor'].sum() if 'Situação' in df_filtered.columns and 'Valor' in df_filtered.columns else 0
+val_venc_com    = df_filtered[df_filtered['Situação'] == 'Vencido c/ Justificativa']['Valor'].sum() if 'Situação' in df_filtered.columns and 'Valor' in df_filtered.columns else 0
+
 # ── Linha 1: KPIs críticos ──
 st.markdown("""<style>
 .big-card {
@@ -497,40 +533,37 @@ st.markdown("""<style>
 r1c1, r1c2, r1c3 = st.columns(3)
 with r1c1:
     st.markdown(f"""<div class="big-card critical">
-        <div class="label">🚨 Processos Vencidos</div>
-        <div class="value" style="color:#ff4d6a">{vencidas}
-            <span class="pct" style="color:#ff8080">({pct_vencidos_str})</span>
+        <div class="label">🔴 Vencido Sem Justificativa</div>
+        <div class="value" style="color:#ff4d6a">{n_venc_sem_just}
+            <span class="pct" style="color:#ff8080">({fmt_pct(n_venc_sem_just, total_itens)})</span>
         </div>
         <div class="sub">
-            Valor em atraso: <strong style="color:#ff4d6a">{format_brl(valor_vencido)}</strong><br>
+            Valor: <strong style="color:#ff4d6a">{format_brl(val_venc_sem)}</strong><br>
             Maior atraso: <strong>{maior_atraso_kpi} dias</strong>
         </div>
     </div>""", unsafe_allow_html=True)
 
 with r1c2:
-    st.markdown(f"""<div class="big-card warning">
-        <div class="label">📦 Prazo de Entrega Encerrado</div>
-        <div class="value" style="color:#b197fc">{entrega_enc}
-            <span class="pct" style="color:#c9b0ff">({pct_entrega_str})</span>
+    st.markdown(f"""<div class="big-card" style="border:1.5px solid rgba(255,140,66,0.5);background:linear-gradient(135deg,#2a1800,#3a2000)">
+        <div class="label">🟠 Vencido Com Justificativa</div>
+        <div class="value" style="color:#ff8c42">{n_venc_com_just}
+            <span class="pct" style="color:#ffa570">({fmt_pct(n_venc_com_just, total_itens)})</span>
         </div>
         <div class="sub">
-            Aguardando entrega/NF<br>
-            de <strong>{total_itens}</strong> pendências no filtro
+            Valor: <strong style="color:#ff8c42">{format_brl(val_venc_com)}</strong><br>
+            Possui prazo de resolução definido
         </div>
     </div>""", unsafe_allow_html=True)
 
 with r1c3:
-    cor_just = '#51cf66' if com_justificativa > 0 else '#8892a4'
-    card_class = 'success' if com_justificativa > 0 else 'neutral'
-    pendentes_txt = f"{sem_justificativa} sem justificativa" if sem_justificativa > 0 else "todas justificadas ✅"
-    st.markdown(f"""<div class="big-card {card_class}">
-        <div class="label">✅ Justificativas Preenchidas</div>
-        <div class="value" style="color:{cor_just}">{com_justificativa}
-            <span class="pct" style="color:#8892a4">de {total_itens}</span>
+    st.markdown(f"""<div class="big-card success">
+        <div class="label">🟢 Em Dia / Justificado</div>
+        <div class="value" style="color:#51cf66">{n_em_dia}
+            <span class="pct" style="color:#80e89a">({fmt_pct(n_em_dia, total_itens)})</span>
         </div>
         <div class="sub">
-            <strong style="color:{cor_just}">{pct_just_str}</strong> concluído<br>
-            {pendentes_txt}
+            Prazo ok e justificativa registrada<br>
+            <strong>{n_entrega_enc}</strong> com entrega encerrada
         </div>
     </div>""", unsafe_allow_html=True)
 
@@ -784,7 +817,7 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace({'None':'','nan':'','NaT':''})
 
-show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
+show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
 
 FMT = {
     'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x,
