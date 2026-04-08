@@ -284,7 +284,7 @@ def format_brl(valor):
 # ══════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════
-EXCEL_PATH = "PENDENCIAS TOTVS BIOFLOR.xlsx"
+EXCEL_PATH = "PENDENCIAS TOTVS BIOFLOR.xlsx"  # Update if filename changes
 
 with st.sidebar:
     st.markdown("### 📁 Dados")
@@ -511,12 +511,12 @@ with r2c1:
 with r2c2:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Total</div>
-        <div class="metric-value color-green">{format_brl(total_valor)}</div>
+        <div class="metric-value color-green" style="font-size:1.4rem">{format_brl(total_valor)}</div>
     </div>""", unsafe_allow_html=True)
 with r2c3:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Valor Vencido</div>
-        <div class="metric-value color-red">{format_brl(valor_vencido)}</div>
+        <div class="metric-value color-red" style="font-size:1.4rem">{format_brl(valor_vencido)}</div>
     </div>""", unsafe_allow_html=True)
 with r2c4:
     st.markdown(f"""<div class="metric-card">
