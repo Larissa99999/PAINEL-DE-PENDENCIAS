@@ -795,7 +795,7 @@ with col_form1:
     opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
     sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
     sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
-    prazo_resolucao = st.date_input("Prazo previsto de resolução", value=None, min_value=date.today())
+    prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
 
 with col_form2:
     observacao = st.text_area("Observação adicional", height=130,
@@ -805,8 +805,15 @@ with col_form2:
             st.error("⚠️ Selecione uma pendência!")
         elif sel_justificativa == "— Selecione —":
             st.error("⚠️ Selecione um motivo!")
+        elif prazo_resolucao is None:
+            st.error("⚠️ Informe o prazo previsto para resolução/entrega!")
         else:
-            row_id = sel_pendencia.split(" - ")[0].replace("#","")
+            # Extract ID from selection - format is 'PC:XXXXX | NF:XXXXX — FORNECEDOR' or '#ID — FORNECEDOR'
+            if sel_pendencia.startswith('#'):
+                row_id = sel_pendencia.split(" — ")[0].replace("#","").strip()
+            else:
+                row_id = df_filtered.index[opcoes_pend.index(sel_pendencia)]
+                row_id = str(df_filtered.loc[row_id, 'ID']) if 'ID' in df_filtered.columns else str(row_id)
             save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=st.session_state.get('responsavel',''), df_ref=df_filtered)
             st.success("✅ Justificativa salva com sucesso!")
             st.rerun()
