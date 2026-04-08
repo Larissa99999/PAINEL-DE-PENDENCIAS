@@ -69,14 +69,10 @@ import gspread
 OPCOES_JUSTIFICATIVA = [
     "— Selecione —",
     "Aguardando NF do fornecedor",
-    "NF com divergência de valores",
+    "Divergência entre NF x PC",
     "Pedido em análise de aprovação",
     "Fornecedor sem previsão de entrega",
-    "Aguardando liberação financeira",
-    "Produto em falta no fornecedor",
-    "Erro no pedido - refazendo",
-    "Em negociação de preço",
-    "Documentação pendente",
+    "Eliminar resíduo",
     "Outro (detalhar na observação)"
 ]
 
@@ -349,6 +345,11 @@ with st.sidebar:
     else:
         sel_filial = "Todas"
 
+    if 'Controle' in df.columns:
+        sel_aprovacao = st.selectbox("Aprovação", ["Todos", "B — Em aprovação", "L — Aprovado"])
+    else:
+        sel_aprovacao = "Todos"
+
     # Filtro por vencimento
     st.markdown("#### 📅 Vencimento")
     if 'Vencimento' in df.columns:
@@ -364,6 +365,22 @@ with st.sidebar:
         data_de = None
         data_ate = None
 
+    # Filtro por data de emissão
+    st.markdown("#### 🧾 Dt Emissão")
+    if 'Dt Emissão' in df.columns:
+        df['Dt Emissão'] = pd.to_datetime(df['Dt Emissão'], dayfirst=True, errors='coerce')
+        emiss_min = df['Dt Emissão'].min()
+        emiss_max = df['Dt Emissão'].max()
+        if pd.notna(emiss_min) and pd.notna(emiss_max):
+            emiss_de = st.date_input("De", value=emiss_min.date(), key="emiss_de")
+            emiss_ate = st.date_input("Até", value=emiss_max.date(), key="emiss_ate")
+        else:
+            emiss_de = None
+            emiss_ate = None
+    else:
+        emiss_de = None
+        emiss_ate = None
+
     df_filtered = df.copy()
     if sel_comprador != "Todos":
         df_filtered = df_filtered[df_filtered['Comprador'] == sel_comprador]
@@ -373,10 +390,19 @@ with st.sidebar:
         df_filtered = df_filtered[df_filtered['Status'] == sel_status]
     if sel_filial != "Todas" and 'Filial' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['Filial'].astype(str) == sel_filial]
+    if sel_aprovacao != "Todos" and 'Controle' in df_filtered.columns:
+        cod = sel_aprovacao.split(" ")[0]
+        df_filtered = df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith(cod)]
     if data_de and data_ate and 'Vencimento' in df_filtered.columns:
         df_filtered = df_filtered[
             (df_filtered['Vencimento'].dt.date >= data_de) &
             (df_filtered['Vencimento'].dt.date <= data_ate)
+        ]
+    if emiss_de and emiss_ate and 'Dt Emissão' in df_filtered.columns:
+        df_filtered['Dt Emissão'] = pd.to_datetime(df_filtered['Dt Emissão'], dayfirst=True, errors='coerce')
+        df_filtered = df_filtered[
+            (df_filtered['Dt Emissão'].dt.date >= emiss_de) &
+            (df_filtered['Dt Emissão'].dt.date <= emiss_ate)
         ]
 
     st.markdown("---")
@@ -419,7 +445,11 @@ if 'Dt Entrega PC' in df_filtered.columns:
     entrega_enc = len(df_filtered[df_filtered['Dt Entrega PC'] < agora_now])
 
 just_df = load_justificativas()
-com_justificativa = len(df_filtered[df_filtered['ID'].isin(just_df['ID'])])
+if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.columns:
+    pcs_com_just = set(just_df['Nº_PC'].astype(str).values)
+    com_justificativa = len(df_filtered[df_filtered['Nº PC'].astype(str).isin(pcs_com_just)])
+else:
+    com_justificativa = 0
 sem_justificativa = total_itens - com_justificativa
 pct_just = int(com_justificativa / total_itens * 100) if total_itens > 0 else 0
 pct_vencidos = int(vencidas / total_itens * 100) if total_itens > 0 else 0
@@ -456,14 +486,20 @@ with r1c3:
     cor_just = '#ff4d6a' if pct_just < 30 else '#ff8c42' if pct_just < 60 else '#51cf66'
     st.markdown(f"""<div class="big-card">
         <div class="label">✅ Justificativas Preenchidas</div>
-        <div class="value" style="color:{cor_just}">{pct_just}%</div>
-        <div class="sub">{com_justificativa} de {total_itens} &nbsp;|&nbsp; {sem_justificativa} sem justificativa</div>
+        <div class="value" style="color:{cor_just}">{com_justificativa} <span style="font-size:1rem;color:#8892a4">de {total_itens}</span></div>
+        <div class="sub">{pct_just}% concluído &nbsp;|&nbsp; {sem_justificativa} pendentes</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Linha 2: resumo geral ──
-r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+em_aprovacao = 0
+aprovados = 0
+if 'Controle' in df_filtered.columns:
+    em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
+    aprovados = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('L')])
+
+r2c1, r2c2, r2c3, r2c4, r2c5, r2c6 = st.columns(6)
 with r2c1:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Total de Pendências</div>
@@ -483,6 +519,16 @@ with r2c4:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">Sem Justificativa</div>
         <div class="metric-value color-orange">{sem_justificativa}</div>
+    </div>""", unsafe_allow_html=True)
+with r2c5:
+    st.markdown(f"""<div class="metric-card">
+        <div class="metric-label">⏳ Em Aprovação (B)</div>
+        <div class="metric-value color-orange">{em_aprovacao}</div>
+    </div>""", unsafe_allow_html=True)
+with r2c6:
+    st.markdown(f"""<div class="metric-card">
+        <div class="metric-label">✅ Aprovados (L)</div>
+        <div class="metric-value color-green">{aprovados}</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -514,7 +560,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 1: Sem PC — mais crítica
         st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
-        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
+        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
         if len(df_sem_pc) > 0 and len(cols_sem_pc) > 0:
             st.dataframe(
                 df_sem_pc[cols_sem_pc].sort_values('Valor', ascending=False).style
@@ -527,7 +573,7 @@ if 'Status' in df_filtered.columns:
 
         # Tabela 2: Com PC mas sem lançamento
         st.markdown('<div class="section-title">📋 Notas Com PC e Sem Lançamento — Atenção</div>', unsafe_allow_html=True)
-        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
+        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
         if len(df_com_pc) > 0 and len(cols_com_pc) > 0:
             st.dataframe(
                 df_com_pc[cols_com_pc].sort_values('Valor', ascending=False).style
@@ -714,7 +760,7 @@ if 'Vencimento' in df_filtered.columns:
         for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
             if col in df_venc_display.columns:
                 df_venc_display[col] = df_venc_display[col].fillna('').replace('None', '')
-        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
+        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
 
         def highlight_atraso(row):
             dias = row.get('Dias_Atraso', 0)
@@ -750,7 +796,7 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace('None', '')
 
-show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
+show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
 
 # Clean None values in display
 df_display_clean = df_display[show_cols].copy()
@@ -775,9 +821,15 @@ col_form1, col_form2 = st.columns([1, 2])
 with col_form1:
     responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
     st.session_state['responsavel'] = responsavel
-    opcoes_pend = df_filtered.apply(
-        lambda r: f"#{r['ID']} - {str(r.get('Fornecedor','?'))[:40]} - {format_brl(r.get('Valor',0))}",
-        axis=1).tolist()
+    def label_pend(r):
+        pc = str(r.get('Nº PC', '')).strip()
+        nota = str(r.get('Nº Nota', '')).strip()
+        forn = str(r.get('Fornecedor', '?'))[:35].strip()
+        pc_str = f"PC:{pc}" if pc and pc not in ['—', '', 'nan'] else ''
+        nota_str = f"NF:{nota}" if nota and nota not in ['—', '', 'nan'] else ''
+        ref = ' | '.join(filter(None, [pc_str, nota_str]))
+        return f"{ref} — {forn}" if ref else f"#{r['ID']} — {forn}"
+    opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
     sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
     sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
     prazo_resolucao = st.date_input("Prazo previsto de resolução", value=None, min_value=date.today())
