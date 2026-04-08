@@ -462,7 +462,9 @@ if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.
 else:
     com_justificativa = 0
 sem_justificativa = total_itens - com_justificativa
-pct_just = int(com_justificativa / total_itens * 100) if total_itens > 0 else 0
+pct_just_raw = (com_justificativa / total_itens * 100) if total_itens > 0 else 0
+pct_just = round(pct_just_raw, 1)
+pct_just_str = f"{pct_just:.1f}%" if pct_just < 1 and pct_just > 0 else f"{int(pct_just)}%"
 pct_vencidos = int(vencidas / total_itens * 100) if total_itens > 0 else 0
 
 # ── Linha 1: os 3 mais críticos em destaque ──
@@ -498,7 +500,7 @@ with r1c3:
     st.markdown(f"""<div class="big-card">
         <div class="label">✅ Justificativas Preenchidas</div>
         <div class="value" style="color:{cor_just}">{com_justificativa} <span style="font-size:1rem;color:#8892a4">de {total_itens}</span></div>
-        <div class="sub">{pct_just}% concluído &nbsp;|&nbsp; {sem_justificativa} pendentes</div>
+        <div class="sub">{pct_just_str} concluído &nbsp;|&nbsp; {sem_justificativa} pendentes</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
