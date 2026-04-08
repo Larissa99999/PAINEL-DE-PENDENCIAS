@@ -100,9 +100,10 @@ def get_worksheet():
             ws = sh.sheet1
     try:
         first = ws.acell('A1').value
-        if not first or first != 'ID':
-            ws.clear()
+        # Only add header if sheet is completely empty - NEVER clear existing data
+        if not first or str(first).strip() == '':
             ws.append_row(COLS_JUST)
+        # If header exists but is wrong format, just leave it - do not clear
     except:
         pass
     return ws
@@ -447,8 +448,8 @@ if 'Dt Entrega PC' in df_filtered.columns:
 
 just_df = load_justificativas()
 if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.columns:
-    pcs_com_just = set(just_df['Nº_PC'].astype(str).values)
-    com_justificativa = len(df_filtered[df_filtered['Nº PC'].astype(str).isin(pcs_com_just)])
+    pcs_com_just = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'', 'nan', 'None', '—'}
+    com_justificativa = len(df_filtered[df_filtered['Nº PC'].astype(str).str.strip().isin(pcs_com_just)]) if pcs_com_just else 0
 else:
     com_justificativa = 0
 sem_justificativa = total_itens - com_justificativa
@@ -544,47 +545,6 @@ PLOT_LAYOUT = dict(
 
 # ══════════════════════════════════════════════════════════════════════
 # KPIs + PAINEL: NOTAS PENDENTES DE LANÇAMENTO (SF1)
-# ══════════════════════════════════════════════════════════════════════
-if 'Status' in df_filtered.columns:
-    df_sf1 = df_filtered[df_filtered['Status'].notna() & (df_filtered['Status'].astype(str) != '—')].copy()
-    tem_pc = df_sf1['Nº PC'].notna() & (~df_sf1['Nº PC'].isin(['', '—', 'nan'])) if 'Nº PC' in df_sf1.columns else pd.Series([False]*len(df_sf1))
-    df_com_pc  = df_sf1[tem_pc]
-    df_sem_pc  = df_sf1[~tem_pc]
-    qtd_sf1    = len(df_sf1)
-    qtd_com_pc = len(df_com_pc)
-    qtd_sem_pc = len(df_sem_pc)
-    valor_sf1    = df_sf1['Valor'].sum() if 'Valor' in df_sf1.columns else 0
-    valor_sem_pc = df_sem_pc['Valor'].sum() if 'Valor' in df_sem_pc.columns else 0
-
-    if qtd_sf1 > 0:
-        st.markdown('<div class="section-title">⚠️ Notas Pendentes de Lançamento (SF1)</div>', unsafe_allow_html=True)
-
-        # Tabela 1: Sem PC — mais crítica
-        st.markdown('<div class="section-title">🚨 Notas Sem PC e Sem Lançamento — Crítico</div>', unsafe_allow_html=True)
-        cols_sem_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_sem_pc.columns]
-        if len(df_sem_pc) > 0 and len(cols_sem_pc) > 0:
-            st.dataframe(
-                df_sem_pc[cols_sem_pc].sort_values('Valor', ascending=False).style
-                    .set_properties(**{'background-color': 'rgba(255,77,106,0.12)'})
-                    .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}),
-                use_container_width=True, height=350
-            )
-        else:
-            st.success('✅ Nenhuma nota sem PC encontrada!')
-
-        # Tabela 2: Com PC mas sem lançamento
-        st.markdown('<div class="section-title">📋 Notas Com PC e Sem Lançamento — Atenção</div>', unsafe_allow_html=True)
-        cols_com_pc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_com_pc.columns]
-        if len(df_com_pc) > 0 and len(cols_com_pc) > 0:
-            st.dataframe(
-                df_com_pc[cols_com_pc].sort_values('Valor', ascending=False).style
-                    .set_properties(**{'background-color': 'rgba(177,151,252,0.08)'})
-                    .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x}),
-                use_container_width=True, height=350
-            )
-        else:
-            st.success('✅ Nenhuma nota com PC pendente encontrada!')
-
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════
@@ -621,11 +581,12 @@ with col_g1:
         # Justificativas por Nº PC
         df_sol['Com_Just_Qtd'] = 0
         if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base.columns:
-            pcs_just = set(just_df['Nº_PC'].values)
-            for idx2, row2 in df_sol.iterrows():
-                sol_name = row2['Solicitante']
-                sol_pcs = base[base['Solicitante'] == sol_name]['Nº PC'].astype(str).values
-                df_sol.at[idx2, 'Com_Just_Qtd'] = sum(1 for pc in sol_pcs if pc in pcs_just)
+            pcs_just = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'', 'nan', 'None', '—'}
+            if pcs_just:
+                for idx2, row2 in df_sol.iterrows():
+                    sol_name = row2['Solicitante']
+                    sol_pcs = base[base['Solicitante'] == sol_name]['Nº PC'].astype(str).str.strip().values
+                    df_sol.at[idx2, 'Com_Just_Qtd'] = sum(1 for pc in sol_pcs if pc in pcs_just)
         df_sol = df_sol.sort_values('Qtd', ascending=True)
         if len(df_sol) > 0:
             # Calcula justificativas por solicitante
@@ -747,8 +708,9 @@ if 'Vencimento' in df_filtered.columns:
         maior_atraso = df_vencidos['Dias_Atraso'].max()
         media_atraso = df_vencidos['Dias_Atraso'].mean()
 
-        # Tabela de vencidos em evidência
-        st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
+        # Tabela removida - consolidada na tabela principal abaixo
+        if False:
+            st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
         just_df_venc = load_justificativas()
         # Rename just_df cols to match df columns for display
         just_rename = {'Nº_PC':'Nº PC','Nº_Nota':'Nº Nota','Dt_Entrega':'Dt Entrega PC'}
