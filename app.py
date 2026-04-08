@@ -553,282 +553,123 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 
 st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante</div>', unsafe_allow_html=True)
+st.caption("🔴 Vencido · 🟣 Entrega encerrada (não vencido) · 🟢 Com justificativa · 🔵 Pendente normal")
 
 agora_kpi = pd.Timestamp.now().normalize()
-
 col_g1, col_g2 = st.columns(2)
+
+def get_cor_barra(pct_vencido, pct_just, pct_entrega):
+    """Define cor da barra por prioridade"""
+    if pct_vencido >= 80: return '#ff4d6a'       # vermelho - maioria vencida
+    if pct_entrega >= 50: return '#b197fc'         # roxo - entrega encerrada
+    if pct_just >= 50:    return '#51cf66'         # verde - maioria justificada
+    if pct_vencido > 0:   return '#ff8c42'         # laranja - parcialmente vencido
+    return '#4dabf7'                               # azul - normal
 
 with col_g1:
     if 'Solicitante' in df_filtered.columns:
         df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
         base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan','None']))]
         df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
-        # Vencidos
-        if 'Vencimento' in df_filtered.columns:
-            df_sol_venc = base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos')
-            df_sol = df_sol.merge(df_sol_venc, on='Solicitante', how='left').fillna(0)
+
+        if 'Vencimento' in base.columns:
+            df_sol = df_sol.merge(
+                base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos'),
+                on='Solicitante', how='left').fillna(0)
         else:
             df_sol['Vencidos'] = 0
-        df_sol['Vencidos'] = df_sol['Vencidos'].astype(int)
-        df_sol['Pct_Vencido'] = (df_sol['Vencidos'] / df_sol['Qtd'] * 100).round(0).astype(int)
-        # Entrega encerrada
-        if 'Dt Entrega PC' in df_filtered.columns:
-            df_sol_ent = base[base['Dt Entrega PC'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Entrega_Enc')
-            df_sol = df_sol.merge(df_sol_ent, on='Solicitante', how='left').fillna(0)
-            df_sol['Entrega_Enc'] = df_sol['Entrega_Enc'].astype(int)
+
+        if 'Dt Entrega PC' in base.columns:
+            df_sol = df_sol.merge(
+                base[base['Dt Entrega PC'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Entrega_Enc'),
+                on='Solicitante', how='left').fillna(0)
         else:
             df_sol['Entrega_Enc'] = 0
-        # Justificativas por Nº PC
-        df_sol['Com_Just_Qtd'] = 0
+
+        pcs_just_s = set()
         if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base.columns:
-            pcs_just = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'', 'nan', 'None', '—'}
-            if pcs_just:
-                for idx2, row2 in df_sol.iterrows():
-                    sol_name = row2['Solicitante']
-                    sol_pcs = base[base['Solicitante'] == sol_name]['Nº PC'].astype(str).str.strip().values
-                    df_sol.at[idx2, 'Com_Just_Qtd'] = sum(1 for pc in sol_pcs if pc in pcs_just)
+            pcs_just_s = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'','nan','None','—'}
+        df_sol['Com_Just'] = df_sol['Solicitante'].apply(
+            lambda s: base[base['Solicitante']==s]['Nº PC'].astype(str).str.strip().isin(pcs_just_s).sum() if pcs_just_s else 0)
+
+        df_sol['Pct_Vencido']  = (df_sol['Vencidos']    / df_sol['Qtd'] * 100).round(0).astype(int)
+        df_sol['Pct_Entrega']  = (df_sol['Entrega_Enc'] / df_sol['Qtd'] * 100).round(0).astype(int)
+        df_sol['Pct_Just']     = (df_sol['Com_Just']    / df_sol['Qtd'] * 100).round(0).astype(int)
+        df_sol['Cor'] = df_sol.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_sol = df_sol.sort_values('Qtd', ascending=True)
-        if len(df_sol) > 0:
-            # Calcula justificativas por solicitante
-            # Com_Just_Qtd already calculated above
 
-            # Sort ascending para horizontal ficar do maior para o menor no topo
-            df_sol = df_sol.sort_values('Qtd', ascending=True)
-
-            fig1 = go.Figure()
-            fig1.add_trace(go.Bar(
-                y=df_sol['Solicitante'], x=df_sol['Com_Just_Qtd'],
-                name='Com justificativa',
-                orientation='h',
-                marker=dict(color='#51cf66'),
-            ))
-            fig1.add_trace(go.Bar(
-                y=df_sol['Solicitante'], x=df_sol['Entrega_Enc'],
-                name='Entrega enc.',
-                orientation='h',
-                marker=dict(color='#b197fc'),
-            ))
-            fig1.add_trace(go.Bar(
-                y=df_sol['Solicitante'], x=df_sol['Vencidos'],
-                name='Vencidos',
-                orientation='h',
-                marker=dict(color='#ff4d6a'),
-                text=[f"{v} ({p}%)" for v, p in zip(df_sol['Vencidos'], df_sol['Pct_Vencido'])],
-                textposition='inside',
-                textfont=dict(size=11, color='white')
-            ))
-            fig1.update_layout(**PLOT_LAYOUT)
-            fig1.update_layout(
-                barmode='stack',
-                title="👤 Por Solicitante",
-                height=max(300, len(df_sol) * 60 + 80),
-                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
-                yaxis=dict(showgrid=False, automargin=True),
-                margin=dict(l=10, r=20, t=40, b=90),
-                legend=dict(orientation='h', y=-0.28, font=dict(size=11), x=0)
-            )
-            st.plotly_chart(fig1, use_container_width=True)
+        fig1 = go.Figure()
+        fig1.add_trace(go.Bar(
+            y=df_sol['Solicitante'],
+            x=df_sol['Qtd'],
+            orientation='h',
+            marker=dict(color=df_sol['Cor'].tolist()),
+            text=[f"{r['Qtd']} | {r['Pct_Vencido']}% venc." for _, r in df_sol.iterrows()],
+            textposition='inside',
+            textfont=dict(size=11, color='white'),
+            hovertemplate='<b>%{y}</b><br>Total: %{x}<extra></extra>'
+        ))
+        fig1.update_layout(**PLOT_LAYOUT)
+        fig1.update_layout(
+            title='👤 Por Solicitante',
+            height=max(280, len(df_sol) * 55 + 60),
+            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
+            yaxis=dict(showgrid=False, automargin=True),
+            margin=dict(l=10, r=20, t=40, b=20),
+        )
+        st.plotly_chart(fig1, use_container_width=True)
 
 with col_g2:
     if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns:
         df_filtered['Comprador'] = df_filtered['Comprador'].astype(str).str.strip()
-        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan']))]
-        df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum')).reset_index()
+        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan','None']))]
+        df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum'), Qtd=('Comprador','size')).reset_index()
+
         if 'Vencimento' in base2.columns:
-            df_comp_venc = base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index()
-            df_comp = df_comp.merge(df_comp_venc, on='Comprador', how='left').fillna(0)
+            df_comp = df_comp.merge(
+                base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index(),
+                on='Comprador', how='left').fillna(0)
         else:
             df_comp['Valor_Vencido'] = 0
-        if 'Dt Entrega PC' in df_filtered.columns:
-            df_comp_ent = base2[base2['Dt Entrega PC'] < agora_kpi].groupby('Comprador').agg(Valor_Entrega=('Valor','sum')).reset_index()
-            df_comp = df_comp.merge(df_comp_ent, on='Comprador', how='left').fillna(0)
+
+        if 'Dt Entrega PC' in base2.columns:
+            df_comp = df_comp.merge(
+                base2[base2['Dt Entrega PC'] < agora_kpi].groupby('Comprador').agg(Qtd_Entrega=('Comprador','size')).reset_index(),
+                on='Comprador', how='left').fillna(0)
         else:
-            df_comp['Valor_Entrega'] = 0
+            df_comp['Qtd_Entrega'] = 0
+
+        pcs_just_c = set()
+        if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base2.columns:
+            pcs_just_c = set(just_df['Nº_PC'].astype(str).str.strip().values) - {'','nan','None','—'}
+        df_comp['Com_Just'] = df_comp['Comprador'].apply(
+            lambda c: base2[base2['Comprador']==c]['Nº PC'].astype(str).str.strip().isin(pcs_just_c).sum() if pcs_just_c else 0)
+
         df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(0).astype(int)
+        df_comp['Pct_Entrega'] = (df_comp['Qtd_Entrega']   / df_comp['Qtd']   * 100).round(0).astype(int)
+        df_comp['Pct_Just']    = (df_comp['Com_Just']       / df_comp['Qtd']   * 100).round(0).astype(int)
+        df_comp['Cor'] = df_comp.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
         df_comp = df_comp.sort_values('Valor', ascending=True)
-        if len(df_comp) > 0:
-            fig2 = go.Figure()
-            # Calcula valor com justificativa por comprador
-            if len(just_df) > 0:
-                ids_just2 = set(just_df['ID'].values)
-                df_comp_just = base2[base2['ID'].isin(ids_just2)].groupby('Comprador').agg(Valor_Just=('Valor','sum')).reset_index()
-                df_comp = df_comp.merge(df_comp_just, on='Comprador', how='left').fillna(0)
-            else:
-                df_comp['Valor_Just'] = 0
 
-            fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'], x=df_comp['Valor_Just'],
-                name='Com justificativa ✅',
-                orientation='h',
-                marker=dict(color='#51cf66'),
-                textfont=dict(size=10, color='white')
-            ))
-            fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'], x=df_comp['Valor_Entrega'],
-                name='Entrega enc. 📦',
-                orientation='h',
-                marker=dict(color='#b197fc'),
-                textfont=dict(size=11)
-            ))
-            fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'], x=df_comp['Valor_Vencido'],
-                name='Vencido 🚨',
-                orientation='h',
-                marker=dict(color='#ff4d6a'),
-                text=[f"{p}% — {format_brl(v)}" for v, p in zip(df_comp['Valor_Vencido'], df_comp['Pct_Vencido'])],
-                textposition='inside',
-                textfont=dict(size=10, color='white')
-            ))
-            fig2.update_layout(**PLOT_LAYOUT)
-            fig2.update_layout(
-                barmode='stack',
-                title="💰 Valor por Comprador",
-                height=max(300, len(df_comp) * 50 + 100),
-                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-                yaxis=dict(showgrid=False, automargin=True),
-                margin=dict(l=10, r=20, t=40, b=90),
-                legend=dict(orientation='h', y=-0.22, font=dict(size=11), x=0)
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(
+            y=df_comp['Comprador'],
+            x=df_comp['Valor'],
+            orientation='h',
+            marker=dict(color=df_comp['Cor'].tolist()),
+            text=[f"{format_brl(r['Valor'])} | {r['Pct_Vencido']}% venc." for _, r in df_comp.iterrows()],
+            textposition='inside',
+            textfont=dict(size=10, color='white'),
+            hovertemplate='<b>%{y}</b><br>Valor: R$ %{x:,.2f}<extra></extra>'
+        ))
+        fig2.update_layout(**PLOT_LAYOUT)
+        fig2.update_layout(
+            title='💰 Valor por Comprador',
+            height=max(280, len(df_comp) * 55 + 60),
+            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+            yaxis=dict(showgrid=False, automargin=True),
+            margin=dict(l=10, r=20, t=40, b=20),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════════════
-# SEÇÃO: PROCESSOS VENCIDOS / ATRASADOS POR RESPONSÁVEL
-# ══════════════════════════════════════════════════════════════════════
 
-if 'Vencimento' in df_filtered.columns:
-    agora = pd.Timestamp.now().normalize()
-    df_vencidos = df_filtered[df_filtered['Vencimento'] < agora].copy()
-    df_vencidos['Dias_Atraso'] = (agora - df_vencidos['Vencimento']).dt.days
-    df_vencidos['Dias_Atraso'] = df_vencidos['Dias_Atraso'].fillna(0).astype(int)
-
-    if len(df_vencidos) == 0:
-        st.success("✅ Nenhum processo vencido no filtro atual!")
-    else:
-        # KPIs de vencidos
-        total_venc_valor = df_vencidos['Valor'].sum() if 'Valor' in df_vencidos.columns else 0
-        maior_atraso = df_vencidos['Dias_Atraso'].max()
-        media_atraso = df_vencidos['Dias_Atraso'].mean()
-
-        # Tabela removida - consolidada na tabela principal abaixo
-        if False:
-            st.markdown('<div class="section-title">📋 Detalhe dos Processos Vencidos</div>', unsafe_allow_html=True)
-        just_df_venc = load_justificativas()
-        # Rename just_df cols to match df columns for display
-        just_rename = {'Nº_PC':'Nº PC','Nº_Nota':'Nº Nota','Dt_Entrega':'Dt Entrega PC'}
-        if len(just_df_venc) > 0 and 'Nº_PC' in just_df_venc.columns:
-            just_venc_cols = just_df_venc[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
-            just_venc_cols = just_venc_cols.rename(columns={'Nº_PC': 'Nº PC'})
-            df_venc_display = df_vencidos.merge(just_venc_cols, on='Nº PC', how='left') if 'Nº PC' in df_vencidos.columns else df_vencidos.copy()
-        else:
-            df_venc_display = df_vencidos.copy()
-        for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
-            if col in df_venc_display.columns:
-                df_venc_display[col] = df_venc_display[col].fillna('').replace('None', '')
-        cols_venc = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Dias_Atraso','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_venc_display.columns]
-
-        def highlight_atraso(row):
-            dias = row.get('Dias_Atraso', 0)
-            if dias > 30:
-                return ['background-color: rgba(255,77,106,0.18)'] * len(row)
-            elif dias > 7:
-                return ['background-color: rgba(255,140,66,0.15)'] * len(row)
-            else:
-                return ['background-color: rgba(255,212,59,0.10)'] * len(row)
-
-        _sort_col = 'Dias_Atraso' if 'Dias_Atraso' in df_venc_display.columns else cols_venc[0]
-        styled_venc = df_venc_display[cols_venc].sort_values(_sort_col, ascending=False).style\
-            .apply(highlight_atraso, axis=1)\
-            .format({'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x})
-
-        st.dataframe(styled_venc, use_container_width=True, height=350)
-
-else:
-    st.info("Coluna 'Vencimento' não encontrada nos dados.")
-
-# ══════════════════════════════════════════════════════════════════════
-# TABELA + JUSTIFICATIVAS
-# ══════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-title">📝 Pendências e Justificativas</div>', unsafe_allow_html=True)
-just_df = load_justificativas()
-if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
-    just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
-    just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
-    df_display = df_filtered.merge(just_cols_main, on='Nº PC', how='left') if 'Nº PC' in df_filtered.columns else df_filtered.copy()
-else:
-    df_display = df_filtered.copy()
-for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
-    if col in df_display.columns:
-        df_display[col] = df_display[col].fillna('').replace('None', '')
-
-show_cols = [c for c in ['Comprador','Solicitante','Fornecedor','Filial','Nº PC','Nº Nota','Controle','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Status','Justificativa','Prazo_Resolucao','Responsavel','Observacao'] if c in df_display.columns]
-
-# Clean None values in display
-df_display_clean = df_display[show_cols].copy()
-for col in df_display_clean.columns:
-    df_display_clean[col] = df_display_clean[col].replace({'None': '', 'nan': '', 'NaT': ''}).fillna('')
-st.dataframe(
-    df_display_clean.style.format({
-        'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x,
-        'Dt Emissão': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
-        'Dt Entrega PC': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
-        'Vencimento': lambda x: str(x)[:10] if x and str(x) not in ['', 'None', 'nan', 'NaT'] else '',
-    }),
-    use_container_width=True, height=400
-)
-
-# ══════════════════════════════════════════════════════════════════════
-# FORMULÁRIO DE JUSTIFICATIVA
-# ══════════════════════════════════════════════════════════════════════
-st.markdown('<div class="section-title">✏️ Preencher Justificativa</div>', unsafe_allow_html=True)
-
-def label_pend(r):
-    pc = str(r.get('Nº PC', '')).strip()
-    nota = str(r.get('Nº Nota', '')).strip()
-    forn = str(r.get('Fornecedor', '?'))[:35].strip()
-    pc_str = f"PC:{pc}" if pc and pc not in ['—', '', 'nan'] else ''
-    nota_str = f"NF:{nota}" if nota and nota not in ['—', '', 'nan'] else ''
-    ref = ' | '.join(filter(None, [pc_str, nota_str]))
-    return f"{ref} — {forn}" if ref else f"#{r['ID']} — {forn}"
-opcoes_pend = df_filtered.apply(label_pend, axis=1).tolist()
-
-with st.form("form_justificativa", clear_on_submit=True):
-    col_form1, col_form2 = st.columns([1, 2])
-    with col_form1:
-        responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
-        sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
-        sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
-        prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
-    with col_form2:
-        observacao = st.text_area("Observação adicional", height=160,
-                                  placeholder="Descreva detalhes adicionais sobre esta pendência...")
-        submitted = st.form_submit_button("💾  Salvar Justificativa", type="primary", use_container_width=True)
-
-    if submitted:
-        if sel_pendencia == "— Selecione —":
-            st.error("⚠️ Selecione uma pendência!")
-        elif sel_justificativa == "— Selecione —":
-            st.error("⚠️ Selecione um motivo!")
-        elif prazo_resolucao is None:
-            st.error("⚠️ Informe o prazo previsto para resolução/entrega!")
-        else:
-            idx_sel = opcoes_pend.index(sel_pendencia)
-            row = df_filtered.iloc[idx_sel]
-            row_id = str(row.get('ID', idx_sel))
-            save_justificativa(row_id, sel_justificativa, observacao, prazo_resolucao, responsavel=responsavel, df_ref=df_filtered)
-            st.success("✅ Justificativa salva com sucesso!")
-            load_justificativas.clear()
-            st.rerun()
-
-# ══════════════════════════════════════════════════════════════════════
-# EXPORTAR
-# ══════════════════════════════════════════════════════════════════════
-st.markdown("---")
-col_exp1, col_exp2, _ = st.columns([1,1,2])
-with col_exp1:
-    csv_data = df_display[show_cols].to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 Exportar Dados (CSV)", csv_data, "pendencias_com_justificativas.csv", "text/csv")
-with col_exp2:
-    just_df_exp = load_justificativas()
-    if len(just_df_exp) > 0:
-        just_csv = just_df_exp.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Exportar Justificativas", just_csv, "justificativas.csv", "text/csv")
