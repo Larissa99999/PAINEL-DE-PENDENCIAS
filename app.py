@@ -695,169 +695,121 @@ col_g1, col_g2 = st.columns(2)
 
 def get_cor_barra(pct_vencido, pct_just, pct_entrega):
     """Define cor da barra por prioridade"""
-    if pct_vencido >= 80: return '#ff4d6a'       # vermelho - maioria vencida
-    if pct_entrega >= 50: return '#b197fc'         # roxo - entrega encerrada
-    if pct_just >= 50:    return '#51cf66'         # verde - maioria justificada
-    if pct_vencido > 0:   return '#ff8c42'         # laranja - parcialmente vencido
-    return '#4dabf7'                               # azul - normal
+    if pct_vencido >= 80: return '#ff4d6a'
+    if pct_entrega >= 50: return '#b197fc'
+    if pct_just >= 50:    return '#51cf66'
+    if pct_vencido > 0:   return '#ff8c42'
+    return '#4dabf7'
 
-with col_g1:
-    if 'Solicitante' in df_filtered.columns:
-        df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
-        base = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan','None']))]
-        df_sol = base.groupby('Solicitante').size().reset_index(name='Qtd')
+# ══════════════════════════════════════════════════════════════════════
+# Função auxiliar para montar dados segmentados (vencido/entrega/just/normal)
+# ══════════════════════════════════════════════════════════════════════
+def montar_segmentos(base, group_col, agg_col=None):
+    """
+    Monta dataframe com segmentos mutuamente exclusivos.
+    Se agg_col for None: agrega por quantidade.
+    Se agg_col='Valor': agrega por soma do valor.
+    Prioridade: Vencido > Entrega enc. > Com Just > Normal
+    """
+    pcs_j = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
 
-        if 'Vencimento' in base.columns:
-            df_sol = df_sol.merge(
-                base[base['Vencimento'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Vencidos'),
-                on='Solicitante', how='left').fillna(0)
+    grupos = base[group_col].dropna().unique()
+    rows = []
+    for g in grupos:
+        rows_g = base[base[group_col] == g]
+        venc_m = rows_g['Vencimento'] < agora_kpi if 'Vencimento' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
+        entr_m = (rows_g['Dt Entrega PC'] < agora_kpi) & ~venc_m if 'Dt Entrega PC' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
+        just_m = rows_g['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) & ~venc_m & ~entr_m if 'Nº PC' in rows_g.columns and pcs_j else pd.Series([False]*len(rows_g), index=rows_g.index)
+        norm_m = ~venc_m & ~entr_m & ~just_m
+
+        if agg_col and agg_col in rows_g.columns:
+            rows.append({
+                group_col: g,
+                'Total': rows_g[agg_col].sum(),
+                'Seg_Vencido': rows_g[venc_m][agg_col].sum(),
+                'Seg_Entrega': rows_g[entr_m][agg_col].sum(),
+                'Seg_Just':    rows_g[just_m][agg_col].sum(),
+                'Seg_Normal':  rows_g[norm_m][agg_col].sum(),
+            })
         else:
-            df_sol['Vencidos'] = 0
+            rows.append({
+                group_col: g,
+                'Total': len(rows_g),
+                'Seg_Vencido': int(venc_m.sum()),
+                'Seg_Entrega': int(entr_m.sum()),
+                'Seg_Just':    int(just_m.sum()),
+                'Seg_Normal':  int(norm_m.sum()),
+            })
+    return pd.DataFrame(rows).sort_values('Total', ascending=True)
 
-        if 'Dt Entrega PC' in base.columns:
-            df_sol = df_sol.merge(
-                base[base['Dt Entrega PC'] < agora_kpi].groupby('Solicitante').size().reset_index(name='Entrega_Enc'),
-                on='Solicitante', how='left').fillna(0)
+def criar_fig_segmentado(df_seg, group_col, titulo, eh_valor=False):
+    """Cria gráfico de barras horizontais segmentado."""
+    fig = go.Figure()
+    for seg, cor, nome in [
+        ('Seg_Normal',  '#4a5568', 'Pendente normal'),
+        ('Seg_Just',    '#51cf66', 'Com justificativa'),
+        ('Seg_Entrega', '#b197fc', 'Entrega enc.'),
+        ('Seg_Vencido', '#ff4d6a', 'Vencido'),
+    ]:
+        if eh_valor:
+            textos = [format_brl(v) if v > 100 else '' for v in df_seg[seg]]
+            hover = f'<b>%{{y}}</b><br>{nome}: R$ %{{x:,.2f}}<extra></extra>'
         else:
-            df_sol['Entrega_Enc'] = 0
+            textos = [f"{int(v)}" if v > 0 else '' for v in df_seg[seg]]
+            hover = f'<b>%{{y}}</b><br>{nome}: %{{x}}<extra></extra>'
+        fig.add_trace(go.Bar(
+            y=df_seg[group_col], x=df_seg[seg], name=nome,
+            orientation='h', marker=dict(color=cor),
+            text=textos, textposition='inside',
+            textfont=dict(size=10, color='white'),
+            hovertemplate=hover
+        ))
+    fig.update_layout(**PLOT_LAYOUT)
+    fig.update_layout(
+        barmode='stack', title=titulo,
+        height=max(280, len(df_seg) * 55 + 60),
+        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+        yaxis=dict(showgrid=False, automargin=True),
+        margin=dict(l=10, r=20, t=40, b=80),
+        legend=dict(orientation='h', y=-0.22, font=dict(size=11))
+    )
+    return fig
 
-        pcs_just_s = set()
-        if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base.columns:
-            pcs_just_s = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
-        df_sol['Com_Just'] = df_sol['Solicitante'].apply(
-            lambda s: base[base['Solicitante']==s]['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_just_s).sum() if pcs_just_s else 0)
+# ── LINHA 1: SOLICITANTE ──
+if 'Solicitante' in df_filtered.columns:
+    df_filtered['Solicitante'] = df_filtered['Solicitante'].astype(str).str.strip()
+    base_sol = df_filtered[df_filtered['Solicitante'].notna() & (~df_filtered['Solicitante'].isin(['—','','nan','None']))]
 
-        df_sol['Pct_Vencido']  = (df_sol['Vencidos']    / df_sol['Qtd'] * 100).round(0).astype(int)
-        df_sol['Pct_Entrega']  = (df_sol['Entrega_Enc'] / df_sol['Qtd'] * 100).round(0).astype(int)
-        df_sol['Pct_Just']     = (df_sol['Com_Just']    / df_sol['Qtd'] * 100).round(0).astype(int)
-        df_sol['Cor'] = df_sol.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
-        df_sol = df_sol.sort_values('Qtd', ascending=True)
+    if len(base_sol) > 0:
+        with col_g1:
+            df_sol_qtd = montar_segmentos(base_sol, 'Solicitante', agg_col=None)
+            fig_sol_qtd = criar_fig_segmentado(df_sol_qtd, 'Solicitante', '👤 Solicitante — Qtd de Processos', eh_valor=False)
+            st.plotly_chart(fig_sol_qtd, use_container_width=True)
 
-        # Segmentos mutuamente exclusivos por solicitante (sem dupla contagem)
-        # Prioridade: Vencido > Entrega enc. > Com Just > Normal
-        df_sol['Seg_Vencido'] = 0
-        df_sol['Seg_Entrega'] = 0
-        df_sol['Seg_Just']    = 0
-        df_sol['Seg_Normal']  = 0
-        pcs_j = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
-        for sol in df_sol['Solicitante']:
-            rows_s = base[base['Solicitante'] == sol]
-            venc_m = rows_s['Vencimento'] < agora_kpi if 'Vencimento' in rows_s.columns else pd.Series([False]*len(rows_s))
-            entr_m = (rows_s['Dt Entrega PC'] < agora_kpi) & ~venc_m if 'Dt Entrega PC' in rows_s.columns else pd.Series([False]*len(rows_s))
-            just_m = rows_s['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) & ~venc_m & ~entr_m if 'Nº PC' in rows_s.columns else pd.Series([False]*len(rows_s))
-            norm_m = ~venc_m & ~entr_m & ~just_m
-            idx = df_sol[df_sol['Solicitante']==sol].index[0]
-            df_sol.at[idx, 'Seg_Vencido'] = int(venc_m.sum())
-            df_sol.at[idx, 'Seg_Entrega'] = int(entr_m.sum())
-            df_sol.at[idx, 'Seg_Just']    = int(just_m.sum())
-            df_sol.at[idx, 'Seg_Normal']  = int(norm_m.sum())
+        with col_g2:
+            if 'Valor' in base_sol.columns:
+                df_sol_val = montar_segmentos(base_sol, 'Solicitante', agg_col='Valor')
+                fig_sol_val = criar_fig_segmentado(df_sol_val, 'Solicitante', '💰 Solicitante — Valor Total', eh_valor=True)
+                st.plotly_chart(fig_sol_val, use_container_width=True)
 
-        fig1 = go.Figure()
-        for seg, cor, nome in [
-            ('Seg_Normal',  '#4a5568', 'Pendente normal'),
-            ('Seg_Just',    '#51cf66', 'Com justificativa'),
-            ('Seg_Entrega', '#b197fc', 'Entrega enc.'),
-            ('Seg_Vencido', '#ff4d6a', 'Vencido'),
-        ]:
-            fig1.add_trace(go.Bar(
-                y=df_sol['Solicitante'],
-                x=df_sol[seg],
-                name=nome,
-                orientation='h',
-                marker=dict(color=cor),
-                text=[f"{v}" if v > 0 else '' for v in df_sol[seg]],
-                textposition='inside',
-                textfont=dict(size=10, color='white'),
-                hovertemplate=f'<b>%{{y}}</b><br>{nome}: %{{x}}<extra></extra>'
-            ))
-        fig1.update_layout(**PLOT_LAYOUT)
-        fig1.update_layout(
-            barmode='stack',
-            title='👤 Por Solicitante',
-            height=max(280, len(df_sol) * 55 + 60),
-            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title='Qtd'),
-            yaxis=dict(showgrid=False, automargin=True),
-            margin=dict(l=10, r=20, t=40, b=80),
-            legend=dict(orientation='h', y=-0.22, font=dict(size=11))
-        )
-        st.plotly_chart(fig1, use_container_width=True)
+# ── LINHA 2: COMPRADOR ──
+col_g3, col_g4 = st.columns(2)
 
-with col_g2:
-    if 'Comprador' in df_filtered.columns and 'Valor' in df_filtered.columns:
-        df_filtered['Comprador'] = df_filtered['Comprador'].astype(str).str.strip()
-        base2 = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan','None']))]
-        df_comp = base2.groupby('Comprador').agg(Valor=('Valor','sum'), Qtd=('Comprador','size')).reset_index()
+if 'Comprador' in df_filtered.columns:
+    df_filtered['Comprador'] = df_filtered['Comprador'].astype(str).str.strip()
+    base_comp = df_filtered[df_filtered['Comprador'].notna() & (~df_filtered['Comprador'].isin(['—','','nan','None']))]
 
-        if 'Vencimento' in base2.columns:
-            df_comp = df_comp.merge(
-                base2[base2['Vencimento'] < agora_kpi].groupby('Comprador').agg(Valor_Vencido=('Valor','sum')).reset_index(),
-                on='Comprador', how='left').fillna(0)
-        else:
-            df_comp['Valor_Vencido'] = 0
+    if len(base_comp) > 0:
+        with col_g3:
+            df_comp_qtd = montar_segmentos(base_comp, 'Comprador', agg_col=None)
+            fig_comp_qtd = criar_fig_segmentado(df_comp_qtd, 'Comprador', '🛒 Comprador — Qtd de Processos', eh_valor=False)
+            st.plotly_chart(fig_comp_qtd, use_container_width=True)
 
-        if 'Dt Entrega PC' in base2.columns:
-            df_comp = df_comp.merge(
-                base2[base2['Dt Entrega PC'] < agora_kpi].groupby('Comprador').agg(Qtd_Entrega=('Comprador','size')).reset_index(),
-                on='Comprador', how='left').fillna(0)
-        else:
-            df_comp['Qtd_Entrega'] = 0
-
-        pcs_just_c = set()
-        if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in base2.columns:
-            pcs_just_c = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
-        df_comp['Com_Just'] = df_comp['Comprador'].apply(
-            lambda c: base2[base2['Comprador']==c]['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_just_c).sum() if pcs_just_c else 0)
-
-        df_comp['Pct_Vencido'] = (df_comp['Valor_Vencido'] / df_comp['Valor'] * 100).round(0).astype(int)
-        df_comp['Pct_Entrega'] = (df_comp['Qtd_Entrega']   / df_comp['Qtd']   * 100).round(0).astype(int)
-        df_comp['Pct_Just']    = (df_comp['Com_Just']       / df_comp['Qtd']   * 100).round(0).astype(int)
-        df_comp['Cor'] = df_comp.apply(lambda r: get_cor_barra(r['Pct_Vencido'], r['Pct_Just'], r['Pct_Entrega']), axis=1)
-        df_comp = df_comp.sort_values('Valor', ascending=True)
-
-        # Segmentos mutuamente exclusivos por comprador (sem dupla contagem)
-        # Prioridade: Vencido > Entrega enc. > Com Just > Normal
-        for comp in df_comp['Comprador']:
-            rows_comp = base2[base2['Comprador'] == comp]
-            venc_mask  = rows_comp['Vencimento'] < agora_kpi if 'Vencimento' in rows_comp.columns else pd.Series([False]*len(rows_comp))
-            entr_mask  = (rows_comp['Dt Entrega PC'] < agora_kpi) & ~venc_mask if 'Dt Entrega PC' in rows_comp.columns else pd.Series([False]*len(rows_comp))
-            pcs_norm   = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
-            just_mask  = rows_comp['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_norm) & ~venc_mask & ~entr_mask if 'Nº PC' in rows_comp.columns else pd.Series([False]*len(rows_comp))
-            norm_mask  = ~venc_mask & ~entr_mask & ~just_mask
-            idx = df_comp[df_comp['Comprador']==comp].index[0]
-            df_comp.at[idx, 'Seg_Vencido'] = rows_comp[venc_mask]['Valor'].sum()
-            df_comp.at[idx, 'Seg_Entrega'] = rows_comp[entr_mask]['Valor'].sum()
-            df_comp.at[idx, 'Seg_Just']    = rows_comp[just_mask]['Valor'].sum()
-            df_comp.at[idx, 'Seg_Normal']  = rows_comp[norm_mask]['Valor'].sum()
-
-        fig2 = go.Figure()
-        for seg, cor, nome in [
-            ('Seg_Normal',  '#4a5568', 'Pendente normal'),
-            ('Seg_Just',    '#51cf66', 'Com justificativa'),
-            ('Seg_Entrega', '#b197fc', 'Entrega enc.'),
-            ('Seg_Vencido', '#ff4d6a', 'Vencido'),
-        ]:
-            fig2.add_trace(go.Bar(
-                y=df_comp['Comprador'],
-                x=df_comp[seg],
-                name=nome,
-                orientation='h',
-                marker=dict(color=cor),
-                text=[format_brl(v) if v > 100 else '' for v in df_comp[seg]],
-                textposition='inside',
-                textfont=dict(size=9, color='white'),
-                hovertemplate=f'<b>%{{y}}</b><br>{nome}: R$ %{{x:,.2f}}<extra></extra>'
-            ))
-        fig2.update_layout(**PLOT_LAYOUT)
-        fig2.update_layout(
-            barmode='stack',
-            title='💰 Valor por Comprador',
-            height=max(280, len(df_comp) * 55 + 60),
-            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
-            yaxis=dict(showgrid=False, automargin=True),
-            margin=dict(l=10, r=20, t=40, b=80),
-            legend=dict(orientation='h', y=-0.22, font=dict(size=11))
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+        with col_g4:
+            if 'Valor' in base_comp.columns:
+                df_comp_val = montar_segmentos(base_comp, 'Comprador', agg_col='Valor')
+                fig_comp_val = criar_fig_segmentado(df_comp_val, 'Comprador', '💰 Comprador — Valor Total', eh_valor=True)
+                st.plotly_chart(fig_comp_val, use_container_width=True)
 
 
 
