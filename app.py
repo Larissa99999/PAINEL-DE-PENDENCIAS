@@ -297,12 +297,36 @@ def load_data(file):
     if key_cols:
         df = df.dropna(subset=key_cols, how="all").reset_index(drop=True)
     df["ID"] = df.index.astype(str)
-    # Fill missing Solicitante with Comprador
-    if 'Solicitante' in df.columns and 'Comprador' in df.columns:
+
+    # Normaliza Comprador e Solicitante vazios
+    PENDENTE_RESP = "⚠️ Pendente Identificação"
+    VAZIOS = ['', '—', 'nan', 'None', 'NaN']
+
+    if 'Comprador' in df.columns:
+        df['Comprador'] = df['Comprador'].apply(
+            lambda x: str(x).strip() if str(x).strip() not in VAZIOS else '')
+    if 'Solicitante' in df.columns:
         df['Solicitante'] = df['Solicitante'].apply(
-            lambda x: x if str(x).strip() not in ['', '—', 'nan', 'None'] else '')
-        mask = df['Solicitante'] == ''
-        df.loc[mask, 'Solicitante'] = df.loc[mask, 'Comprador']
+            lambda x: str(x).strip() if str(x).strip() not in VAZIOS else '')
+
+    # Se Solicitante vazio mas Comprador preenchido → usa Comprador
+    if 'Solicitante' in df.columns and 'Comprador' in df.columns:
+        mask_sol_vazio = df['Solicitante'] == ''
+        df.loc[mask_sol_vazio & (df['Comprador'] != ''), 'Solicitante'] = df.loc[mask_sol_vazio & (df['Comprador'] != ''), 'Comprador']
+
+        # Se Comprador vazio mas Solicitante preenchido → usa Solicitante
+        mask_comp_vazio = df['Comprador'] == ''
+        df.loc[mask_comp_vazio & (df['Solicitante'] != ''), 'Comprador'] = df.loc[mask_comp_vazio & (df['Solicitante'] != ''), 'Solicitante']
+
+        # Se ambos vazios → marca como pendente de identificação
+        mask_ambos = (df['Comprador'] == '') & (df['Solicitante'] == '')
+        df.loc[mask_ambos, 'Comprador'] = PENDENTE_RESP
+        df.loc[mask_ambos, 'Solicitante'] = PENDENTE_RESP
+    elif 'Comprador' in df.columns:
+        df.loc[df['Comprador'] == '', 'Comprador'] = PENDENTE_RESP
+    elif 'Solicitante' in df.columns:
+        df.loc[df['Solicitante'] == '', 'Solicitante'] = PENDENTE_RESP
+
     return df
 
 def format_brl(valor):
@@ -362,6 +386,12 @@ with st.sidebar:
         pcs_just_sit = set(just_df_sit['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
 
     def calc_situacao(row):
+        # Se está pendente de identificação de responsável, essa é a situação prioritária
+        comp = str(row.get('Comprador', '')).strip()
+        sol = str(row.get('Solicitante', '')).strip()
+        if '⚠️' in comp or '⚠️' in sol or 'Pendente Identificação' in comp or 'Pendente Identificação' in sol:
+            return 'Pendente Identificação Responsável'
+
         venc = parse_data(row.get('Vencimento', pd.NaT))
         pc = str(row.get('Nº PC', '')).strip().lstrip('0')
         tem_just = pc in pcs_just_sit and pc != ''
@@ -389,6 +419,7 @@ with st.sidebar:
     sel_solicitante = st.selectbox("Solicitante", solicitantes)
 
     sit_opts = ["Todas"] + [
+        'Pendente Identificação Responsável',
         'Vencido s/ Justificativa',
         'Vencido c/ Justificativa',
         'Entrega Encerrada',
@@ -589,7 +620,7 @@ with r1c3:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Linha 2: Em aprovação ──
+# ── Linha 2: Em aprovação + Pendentes de identificação ──
 em_aprovacao = 0
 if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
@@ -602,7 +633,16 @@ if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Ven
 
 pct_aprov_str = fmt_pct(em_aprovacao, total_itens)
 
-r2c1, r2c2, r2c3 = st.columns(3)
+# Pendentes de identificação de responsável
+n_pend_ident = 0
+valor_pend_ident = 0
+if 'Situação' in df_filtered.columns:
+    df_pend_ident = df_filtered[df_filtered['Situação'] == 'Pendente Identificação Responsável']
+    n_pend_ident = len(df_pend_ident)
+    if 'Valor' in df_pend_ident.columns:
+        valor_pend_ident = df_pend_ident['Valor'].sum()
+
+r2c1, r2c2, r2c3, r2c4 = st.columns(4)
 with r2c1:
     st.markdown(f"""<div class="metric-card">
         <div class="metric-label">💸 Valor Total Vencido</div>
@@ -620,6 +660,12 @@ with r2c3:
         <div class="metric-label" style="color:#4dabf7">💰 Valor Vencido Em Aprovação</div>
         <div class="metric-value" style="color:#4dabf7;font-size:1.1rem">{format_brl(valor_em_aprovacao)}</div>
         <div style="font-size:0.75rem;color:#4dabf7;margin-top:4px;opacity:0.8">vencidos aguardando aprovação (B)</div>
+    </div>""", unsafe_allow_html=True)
+with r2c4:
+    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #ffd43b">
+        <div class="metric-label" style="color:#ffd43b">⚠️ Sem Responsável Identificado</div>
+        <div class="metric-value" style="color:#ffd43b;font-size:2rem">{n_pend_ident}</div>
+        <div style="font-size:0.75rem;color:#ffd43b;margin-top:4px;opacity:0.8">{format_brl(valor_pend_ident)} — requer atribuição</div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -645,51 +691,6 @@ st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante<
 
 
 agora_kpi = pd.Timestamp.now().normalize()
-
-# ══════════════════════════════════════════════════════════════════════
-# GRÁFICO: VOLUME POR MÊS DE EMISSÃO (NF)
-# ══════════════════════════════════════════════════════════════════════
-if 'Dt Emissão' in df_filtered.columns:
-    df_filtered['Dt Emissão'] = df_filtered['Dt Emissão'].apply(parse_data)
-    df_em = df_filtered.dropna(subset=['Dt Emissão']).copy()
-    if len(df_em) > 0:
-        df_em = df_em[df_em['Dt Emissão'].dt.year <= pd.Timestamp.now().year + 1]
-        df_em['Mês Emissão'] = df_em['Dt Emissão'].dt.to_period('M').astype(str)
-        df_em_grp = df_em.groupby('Mês Emissão').agg(
-            Qtd=('Mês Emissão','size'),
-            Valor=('Valor','sum') if 'Valor' in df_em.columns else ('Mês Emissão','size')
-        ).reset_index().sort_values('Mês Emissão')
-
-        col_em1, col_em2 = st.columns(2)
-        with col_em1:
-            fig_em1 = go.Figure()
-            fig_em1.add_trace(go.Bar(
-                x=df_em_grp['Mês Emissão'], y=df_em_grp['Qtd'],
-                marker=dict(color="#b197fc", cornerradius=6),
-                text=df_em_grp['Qtd'], textposition='outside',
-                textfont=dict(size=12, color="#b197fc"),
-                hovertemplate='<b>%{x}</b><br>Qtd: %{y}<extra></extra>'
-            ))
-            fig_em1.update_layout(**PLOT_LAYOUT, title="📅 Qtd de NFs por Mês de Emissão", height=320,
-                xaxis=dict(showgrid=False, tickangle=-30),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
-            st.plotly_chart(fig_em1, use_container_width=True)
-
-        with col_em2:
-            fig_em2 = go.Figure()
-            fig_em2.add_trace(go.Scatter(
-                x=df_em_grp['Mês Emissão'], y=df_em_grp['Valor'],
-                mode='lines+markers',
-                line=dict(color="#51cf66", width=3),
-                marker=dict(size=10, color="#51cf66"),
-                fill='tozeroy', fillcolor='rgba(81,207,102,0.1)',
-                text=df_em_grp['Valor'].apply(lambda v: format_brl(v)),
-                hovertemplate='<b>%{x}</b><br>%{text}<extra></extra>'
-            ))
-            fig_em2.update_layout(**PLOT_LAYOUT, title="💰 Valor Total por Mês de Emissão", height=320,
-                xaxis=dict(showgrid=False, tickangle=-30),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
-            st.plotly_chart(fig_em2, use_container_width=True)
 
 col_g1, col_g2 = st.columns(2)
 
