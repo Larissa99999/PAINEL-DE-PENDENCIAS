@@ -209,6 +209,26 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
 
 
 
+def parse_data(v):
+    """Converte qualquer formato para datetime: texto 'DD/MM/AAAA', datetime, date ou Timestamp."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return pd.NaT
+    if isinstance(v, pd.Timestamp):
+        return v
+    if isinstance(v, datetime):
+        return pd.Timestamp(v)
+    if isinstance(v, date):
+        return pd.Timestamp(v)
+    s = str(v).strip()
+    if s in ["", "—", "-", "nan", "NaT", "None"]:
+        return pd.NaT
+    # Remove prefixos tipo "VENCIDA 3d" ou "3 dias" mantendo só a data
+    import re
+    m = re.search(r'(\d{2}/\d{2}/\d{4})', s)
+    if m:
+        s = m.group(1)
+    return pd.to_datetime(s, dayfirst=True, errors='coerce')
+
 def parse_valor(v):
     if pd.isna(v) or str(v).strip() in ["", "—", "-", "nan"]:
         return 0.0
@@ -267,10 +287,10 @@ def load_data(file):
     df = df.rename(columns=col_map)
     if "Valor" in df.columns:
         df["Valor"] = df["Valor"].apply(parse_valor)
-    if "Vencimento" in df.columns:
-        # Clean 'VENCIDA Xd' prefix - extract just the date part
-        df["Vencimento"] = df["Vencimento"].astype(str).str.extract(r'(\d{2}/\d{2}/\d{4})')[0].fillna(df["Vencimento"])
-        df["Vencimento"] = pd.to_datetime(df["Vencimento"], dayfirst=True, errors="coerce")
+    # Conversão robusta de TODAS as colunas de data (aceita texto OU objeto date)
+    for date_col in ["Vencimento", "Dt Entrega PC", "Dt Emissão"]:
+        if date_col in df.columns:
+            df[date_col] = df[date_col].apply(parse_data)
     if "Dias" in df.columns:
         df["Dias"] = pd.to_numeric(df["Dias"].replace("—", ""), errors="coerce").fillna(0).astype(int)
     key_cols = [c for c in ["Fornecedor", "Comprador", "Valor"] if c in df.columns]
@@ -342,7 +362,7 @@ with st.sidebar:
         pcs_just_sit = set(just_df_sit['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
 
     def calc_situacao(row):
-        venc = row.get('Vencimento', pd.NaT)
+        venc = parse_data(row.get('Vencimento', pd.NaT))
         pc = str(row.get('Nº PC', '')).strip().lstrip('0')
         tem_just = pc in pcs_just_sit and pc != ''
         if pd.notna(venc) and venc < agora_sit:
@@ -350,7 +370,7 @@ with st.sidebar:
                 return 'Vencido c/ Justificativa'
             return 'Vencido s/ Justificativa'
         if 'Dt Entrega PC' in row.index:
-            entr = row.get('Dt Entrega PC', pd.NaT)
+            entr = parse_data(row.get('Dt Entrega PC', pd.NaT))
             if pd.notna(entr) and entr < agora_sit:
                 return 'Entrega Encerrada'
         if tem_just:
@@ -394,8 +414,7 @@ with st.sidebar:
     # Filtro por data de emissão
     st.markdown("#### 🧾 Dt Emissão")
     if 'Dt Emissão' in df.columns:
-        df['Dt Emissão'] = pd.to_datetime(df['Dt Emissão'], dayfirst=True, errors='coerce')
-        # Only use dates within reasonable range (ignore future/invalid dates)
+        df['Dt Emissão'] = df['Dt Emissão'].apply(parse_data)
         emiss_validas = df['Dt Emissão'].dropna()
         emiss_validas = emiss_validas[emiss_validas.dt.year <= pd.Timestamp.now().year + 1]
         if len(emiss_validas) > 0:
@@ -429,7 +448,7 @@ with st.sidebar:
             (df_filtered['Vencimento'].dt.date <= data_ate)
         ]
     if emiss_de and emiss_ate and 'Dt Emissão' in df_filtered.columns:
-        df_filtered['Dt Emissão'] = pd.to_datetime(df_filtered['Dt Emissão'], dayfirst=True, errors='coerce')
+        df_filtered['Dt Emissão'] = df_filtered['Dt Emissão'].apply(parse_data)
         emiss_de_ts = pd.Timestamp(emiss_de)
         emiss_ate_ts = pd.Timestamp(emiss_ate)
         mask_emiss = (
@@ -469,8 +488,9 @@ vencidas = 0
 valor_vencido = 0
 maior_atraso_kpi = 0
 if 'Vencimento' in df_filtered.columns:
-    # Consider all records with valid past vencimento dates
-    venc_series = pd.to_datetime(df_filtered['Vencimento'], dayfirst=True, errors='coerce')
+    # Garante tipo datetime mesmo se vier de atualização
+    df_filtered['Vencimento'] = df_filtered['Vencimento'].apply(parse_data)
+    venc_series = df_filtered['Vencimento']
     df_venc_kpi = df_filtered[venc_series < agora_now].copy()
     vencidas = len(df_venc_kpi)
     valor_vencido = df_venc_kpi['Valor'].sum() if 'Valor' in df_venc_kpi.columns else 0
@@ -479,7 +499,7 @@ if 'Vencimento' in df_filtered.columns:
 
 entrega_enc = 0
 if 'Dt Entrega PC' in df_filtered.columns:
-    df_filtered['Dt Entrega PC'] = pd.to_datetime(df_filtered['Dt Entrega PC'], dayfirst=True, errors='coerce')
+    df_filtered['Dt Entrega PC'] = df_filtered['Dt Entrega PC'].apply(parse_data)
     entrega_enc = len(df_filtered[df_filtered['Dt Entrega PC'] < agora_now])
 
 just_df = load_justificativas()
@@ -625,6 +645,52 @@ st.markdown('<div class="section-title">📈 Visão por Comprador / Solicitante<
 
 
 agora_kpi = pd.Timestamp.now().normalize()
+
+# ══════════════════════════════════════════════════════════════════════
+# GRÁFICO: VOLUME POR MÊS DE EMISSÃO (NF)
+# ══════════════════════════════════════════════════════════════════════
+if 'Dt Emissão' in df_filtered.columns:
+    df_filtered['Dt Emissão'] = df_filtered['Dt Emissão'].apply(parse_data)
+    df_em = df_filtered.dropna(subset=['Dt Emissão']).copy()
+    if len(df_em) > 0:
+        df_em = df_em[df_em['Dt Emissão'].dt.year <= pd.Timestamp.now().year + 1]
+        df_em['Mês Emissão'] = df_em['Dt Emissão'].dt.to_period('M').astype(str)
+        df_em_grp = df_em.groupby('Mês Emissão').agg(
+            Qtd=('Mês Emissão','size'),
+            Valor=('Valor','sum') if 'Valor' in df_em.columns else ('Mês Emissão','size')
+        ).reset_index().sort_values('Mês Emissão')
+
+        col_em1, col_em2 = st.columns(2)
+        with col_em1:
+            fig_em1 = go.Figure()
+            fig_em1.add_trace(go.Bar(
+                x=df_em_grp['Mês Emissão'], y=df_em_grp['Qtd'],
+                marker=dict(color="#b197fc", cornerradius=6),
+                text=df_em_grp['Qtd'], textposition='outside',
+                textfont=dict(size=12, color="#b197fc"),
+                hovertemplate='<b>%{x}</b><br>Qtd: %{y}<extra></extra>'
+            ))
+            fig_em1.update_layout(**PLOT_LAYOUT, title="📅 Qtd de NFs por Mês de Emissão", height=320,
+                xaxis=dict(showgrid=False, tickangle=-30),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
+            st.plotly_chart(fig_em1, use_container_width=True)
+
+        with col_em2:
+            fig_em2 = go.Figure()
+            fig_em2.add_trace(go.Scatter(
+                x=df_em_grp['Mês Emissão'], y=df_em_grp['Valor'],
+                mode='lines+markers',
+                line=dict(color="#51cf66", width=3),
+                marker=dict(size=10, color="#51cf66"),
+                fill='tozeroy', fillcolor='rgba(81,207,102,0.1)',
+                text=df_em_grp['Valor'].apply(lambda v: format_brl(v)),
+                hovertemplate='<b>%{x}</b><br>%{text}<extra></extra>'
+            ))
+            fig_em2.update_layout(**PLOT_LAYOUT, title="💰 Valor Total por Mês de Emissão", height=320,
+                xaxis=dict(showgrid=False, tickangle=-30),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"))
+            st.plotly_chart(fig_em2, use_container_width=True)
+
 col_g1, col_g2 = st.columns(2)
 
 def get_cor_barra(pct_vencido, pct_just, pct_entrega):
@@ -819,11 +885,34 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
 
 show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
 
+def fmt_data(x):
+    """Exibe data no formato DD/MM/AAAA independentemente do formato de entrada."""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return ''
+    s = str(x).strip()
+    if s in ['', 'None', 'nan', 'NaT', '—']:
+        return ''
+    # Se for Timestamp/datetime/date
+    if isinstance(x, (pd.Timestamp, datetime, date)):
+        try:
+            return x.strftime('%d/%m/%Y')
+        except:
+            return ''
+    # Tenta parsear texto
+    try:
+        d = parse_data(x)
+        if pd.notna(d):
+            return d.strftime('%d/%m/%Y')
+    except:
+        pass
+    return s[:10]
+
 FMT = {
     'Valor': lambda x: format_brl(x) if pd.notna(x) and isinstance(x, (int,float)) else x,
-    'Dt Emissão': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
-    'Dt Entrega PC': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
-    'Vencimento': lambda x: str(x)[:10] if x and str(x) not in ['','None','nan','NaT'] else '',
+    'Dt Emissão': fmt_data,
+    'Dt Entrega PC': fmt_data,
+    'Vencimento': fmt_data,
+    'Prazo_Resolucao': fmt_data,
 }
 
 def clean_table(df, cols):
@@ -837,13 +926,13 @@ em_10_dias = agora_tab + pd.Timedelta(days=10)
 
 # Tabela 1a: Já vencidos
 if 'Vencimento' in df_display.columns:
-    venc_s = pd.to_datetime(df_display['Vencimento'], dayfirst=True, errors='coerce')
+    venc_s = df_display['Vencimento'].apply(parse_data)
     mask_vencido = venc_s < agora_tab
     mask_a_vencer = (venc_s >= agora_tab) & (venc_s <= em_10_dias)
     df_t1a = df_display[mask_vencido].copy()
-    df_t1a['_dias'] = (agora_tab - pd.to_datetime(df_t1a['Vencimento'], dayfirst=True, errors='coerce')).dt.days.fillna(0).astype(int)
+    df_t1a['_dias'] = (agora_tab - df_t1a['Vencimento'].apply(parse_data)).dt.days.fillna(0).astype(int)
     df_t1b = df_display[mask_a_vencer].copy()
-    df_t1b['_dias_restantes'] = (pd.to_datetime(df_t1b['Vencimento'], dayfirst=True, errors='coerce') - agora_tab).dt.days.fillna(0).astype(int)
+    df_t1b['_dias_restantes'] = (df_t1b['Vencimento'].apply(parse_data) - agora_tab).dt.days.fillna(0).astype(int)
     ids_t1 = set(df_t1a.index) | set(df_t1b.index)
 else:
     df_t1a = pd.DataFrame()
