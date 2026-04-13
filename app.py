@@ -341,21 +341,23 @@ with st.sidebar:
     if len(just_df_sit) > 0 and 'Nº_PC' in just_df_sit.columns:
         pcs_just_sit = set(just_df_sit['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
 
-    # Calcula situação de forma vetorial (sem apply)
-    venc_col = pd.to_datetime(df['Vencimento'], dayfirst=True, errors='coerce') if 'Vencimento' in df.columns else pd.Series([pd.NaT]*len(df), index=df.index)
-    entr_col = pd.to_datetime(df['Dt Entrega PC'], dayfirst=True, errors='coerce') if 'Dt Entrega PC' in df.columns else pd.Series([pd.NaT]*len(df), index=df.index)
-    pc_col   = df['Nº PC'].astype(str).str.strip().str.lstrip('0') if 'Nº PC' in df.columns else pd.Series(['']*len(df), index=df.index)
-    tem_just = pc_col.isin(pcs_just_sit) & (pc_col != '')
+    def calc_situacao(row):
+        venc = row.get('Vencimento', pd.NaT)
+        pc = str(row.get('Nº PC', '')).strip().lstrip('0')
+        tem_just = pc in pcs_just_sit and pc != ''
+        if pd.notna(venc) and venc < agora_sit:
+            if tem_just:
+                return 'Vencido c/ Justificativa'
+            return 'Vencido s/ Justificativa'
+        if 'Dt Entrega PC' in row.index:
+            entr = row.get('Dt Entrega PC', pd.NaT)
+            if pd.notna(entr) and entr < agora_sit:
+                return 'Entrega Encerrada'
+        if tem_just:
+            return 'Em Dia (Justificado)'
+        return 'Pendente'
 
-    mask_vencido = venc_col < agora_sit
-    mask_entrega = (entr_col < agora_sit) & ~mask_vencido
-
-    situacao = pd.Series('Pendente', index=df.index)
-    situacao[mask_entrega]               = 'Entrega Encerrada'
-    situacao[tem_just & ~mask_vencido]   = 'Em Dia (Justificado)'
-    situacao[mask_vencido & ~tem_just]   = 'Vencido s/ Justificativa'
-    situacao[mask_vencido &  tem_just]   = 'Vencido c/ Justificativa'
-    df['Situação'] = situacao
+    df['Situação'] = df.apply(calc_situacao, axis=1)
 
     st.markdown("---")
     st.markdown("### 🔍 Filtros")
