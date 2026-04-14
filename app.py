@@ -73,6 +73,7 @@ OPCOES_JUSTIFICATIVA = [
     "Pedido em análise de aprovação",
     "Fornecedor sem previsão de entrega",
     "Eliminar resíduo",
+    "Pedido Mãe",
     "Outro (detalhar na observação)"
 ]
 
@@ -158,6 +159,17 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
                 agora = pd.Timestamp.now().normalize()
                 venc = r.get('Vencimento', '')
                 dias_atraso = int((agora - venc).days) if pd.notna(venc) and isinstance(venc, pd.Timestamp) else 0
+
+                # Formata datas em DD/MM/YYYY
+                def _fmt_br(x):
+                    if x is None or str(x).strip() in ['', 'nan', 'NaT', 'None']:
+                        return ''
+                    if isinstance(x, (pd.Timestamp, datetime, date)):
+                        try: return x.strftime('%d/%m/%Y')
+                        except: return ''
+                    d = pd.to_datetime(x, dayfirst=True, errors='coerce')
+                    return d.strftime('%d/%m/%Y') if pd.notna(d) else str(x)[:10]
+
                 row_data = {
                     "Comprador": str(r.get('Comprador', '')),
                     "Solicitante": str(r.get('Solicitante', '')),
@@ -165,11 +177,21 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
                     "Filial": str(r.get('Filial', '')),
                     "Nº_PC": str(r.get('Nº PC', '')),
                     "Nº_Nota": str(r.get('Nº Nota', '')),
-                    "Dt_Entrega": str(r.get('Dt Entrega PC', ''))[:10] if r.get('Dt Entrega PC', '') else '',
-                    "Vencimento": str(venc)[:10] if venc else '',
+                    "Dt_Entrega": _fmt_br(r.get('Dt Entrega PC', '')),
+                    "Vencimento": _fmt_br(venc),
                     "Valor": str(r.get('Valor', '')),
                     "Dias_Atraso": str(dias_atraso),
                 }
+
+        # Formata prazo de resolução em DD/MM/YYYY
+        prazo_fmt = ''
+        if prazo:
+            if isinstance(prazo, (pd.Timestamp, datetime, date)):
+                try: prazo_fmt = prazo.strftime('%d/%m/%Y')
+                except: prazo_fmt = str(prazo)
+            else:
+                d = pd.to_datetime(prazo, dayfirst=True, errors='coerce')
+                prazo_fmt = d.strftime('%d/%m/%Y') if pd.notna(d) else str(prazo)
 
         new_row = {
             "ID": str(row_id),
@@ -184,7 +206,7 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
             "Valor": row_data.get('Valor', ''),
             "Dias_Atraso": row_data.get('Dias_Atraso', ''),
             "Justificativa": justificativa,
-            "Prazo_Resolucao": str(prazo) if prazo else "",
+            "Prazo_Resolucao": prazo_fmt,
             "Observacao": observacao,
             "Responsavel": responsavel,
             "Data_Preenchimento": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -581,36 +603,24 @@ st.markdown("""<style>
 .big-card.neutral  { border: 1.5px solid rgba(255,255,255,0.08); }
 </style>""", unsafe_allow_html=True)
 
-r1c1, r1c2 = st.columns(2)
-with r1c1:
-    st.markdown(f"""<div class="big-card critical">
-        <div class="label">🔴 Vencido Sem Justificativa</div>
-        <div class="value" style="color:#ff4d6a">{n_venc_sem_just}
-            <span class="pct" style="color:#ff8080">({fmt_pct(n_venc_sem_just, total_itens)})</span>
-        </div>
-        <div class="sub">
-            Valor: <strong style="color:#ff4d6a">{format_brl(val_venc_sem)}</strong><br>
-            Maior atraso: <strong>{maior_atraso_kpi} dias</strong>
-        </div>
-    </div>""", unsafe_allow_html=True)
+# ── Justificativas vencidas (prazo de resolução já passou) ──
+n_just_vencida = 0
+val_just_vencida = 0
+if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Prazo_Resolucao' in just_df.columns and 'Nº PC' in df_filtered.columns:
+    hoje_ts = pd.Timestamp.now().normalize()
+    just_df_copy = just_df.copy()
+    just_df_copy['_prazo'] = just_df_copy['Prazo_Resolucao'].apply(parse_data)
+    just_df_copy['_pc_norm'] = just_df_copy['Nº_PC'].astype(str).str.strip().str.lstrip('0')
+    mask_just_venc = (just_df_copy['_prazo'].notna()) & (just_df_copy['_prazo'] < hoje_ts)
+    pcs_just_vencidas = set(just_df_copy[mask_just_venc]['_pc_norm'].values) - {'', 'nan', 'None', '—'}
 
-with r1c2:
-    total_com_just = n_venc_com_just + n_em_dia
-    val_com_just   = val_venc_com + (df_filtered[df_filtered['Situação'] == 'Em Dia (Justificado)']['Valor'].sum() if 'Situação' in df_filtered.columns and 'Valor' in df_filtered.columns else 0)
-    st.markdown(f"""<div class="big-card success">
-        <div class="label">🟢 Total com Justificativa</div>
-        <div class="value" style="color:#51cf66">{total_com_just}
-            <span class="pct" style="color:#80e89a">({fmt_pct(total_com_just, total_itens)})</span>
-        </div>
-        <div class="sub">
-            Valor: <strong style="color:#51cf66">{format_brl(val_com_just)}</strong><br>
-            Processos com justificativa preenchida
-        </div>
-    </div>""", unsafe_allow_html=True)
+    if pcs_just_vencidas:
+        df_pcs_filt = df_filtered['Nº PC'].astype(str).str.strip().str.lstrip('0')
+        df_just_vencidas = df_filtered[df_pcs_filt.isin(pcs_just_vencidas)]
+        n_just_vencida = len(df_just_vencidas)
+        val_just_vencida = df_just_vencidas['Valor'].sum() if 'Valor' in df_just_vencidas.columns else 0
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Linha 2: Em aprovação + Pendentes de identificação ──
+# ── Dados adicionais para governança ──
 em_aprovacao = 0
 if 'Controle' in df_filtered.columns:
     em_aprovacao = len(df_filtered[df_filtered['Controle'].astype(str).str.upper().str.startswith('B')])
@@ -621,9 +631,6 @@ if 'Controle' in df_filtered.columns and 'Valor' in df_filtered.columns and 'Ven
     mask_aprov = (df_filtered['Controle'].astype(str).str.upper().str.startswith('B')) & (df_filtered['Vencimento'] < agora_aprov)
     valor_em_aprovacao = df_filtered[mask_aprov]['Valor'].sum()
 
-pct_aprov_str = fmt_pct(em_aprovacao, total_itens)
-
-# Pendentes de identificação de responsável
 n_pend_ident = 0
 valor_pend_ident = 0
 if 'Situação' in df_filtered.columns:
@@ -632,30 +639,75 @@ if 'Situação' in df_filtered.columns:
     if 'Valor' in df_pend_ident.columns:
         valor_pend_ident = df_pend_ident['Valor'].sum()
 
-r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+# ══════════════════════════════════════════════════════════════════════
+# LINHA 1: Visão geral
+# ══════════════════════════════════════════════════════════════════════
+r1c1, r1c2 = st.columns(2)
+
+with r1c1:
+    st.markdown(f"""<div class="big-card neutral">
+        <div class="label">🧾 Pendências Totais</div>
+        <div class="value" style="color:#e0e0e0">{total_itens}</div>
+        <div class="sub" style="font-size:0.9rem;margin-top:8px">
+            💰 Valor total: <strong style="color:#51cf66;font-size:1.05rem">{format_brl(total_valor)}</strong><br>
+            <span style="opacity:0.7">Entregas em atraso + processos vencidos</span>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+with r1c2:
+    st.markdown(f"""<div class="big-card critical">
+        <div class="label">🔴 Vencidas Sem Justificativa</div>
+        <div class="value" style="color:#ff4d6a">{n_venc_sem_just}
+            <span class="pct" style="color:#ff8080">({fmt_pct(n_venc_sem_just, total_itens)})</span>
+        </div>
+        <div class="sub" style="font-size:0.9rem;margin-top:8px">
+            🔥 Impacto financeiro vencido: <strong style="color:#ff4d6a;font-size:1.05rem">{format_brl(val_venc_sem)}</strong><br>
+            ⏱️ Maior atraso: <strong>{maior_atraso_kpi} dias</strong>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════
+# LINHA 2: Justificativas + Governança
+# ══════════════════════════════════════════════════════════════════════
+total_com_just = n_venc_com_just + n_em_dia
+val_com_just = val_venc_com + (df_filtered[df_filtered['Situação'] == 'Em Dia (Justificado)']['Valor'].sum() if 'Situação' in df_filtered.columns and 'Valor' in df_filtered.columns else 0)
+
+r2c1, r2c2 = st.columns(2)
+
 with r2c1:
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">💸 Valor Total Vencido</div>
-        <div class="metric-value color-red" style="font-size:1.1rem">{format_brl(valor_vencido)}</div>
-        <div style="font-size:0.75rem;color:#8892a4;margin-top:4px">{pct_vencidos_str} do valor total</div>
+    st.markdown(f"""<div class="big-card success">
+        <div class="label">✅ Com Justificativa</div>
+        <div class="value" style="color:#51cf66">{total_com_just}
+            <span class="pct" style="color:#80e89a">({fmt_pct(total_com_just, total_itens)})</span>
+        </div>
+        <div class="sub" style="font-size:0.9rem;margin-top:8px">
+            💰 Valor: <strong style="color:#51cf66;font-size:1.05rem">{format_brl(val_com_just)}</strong><br>
+            <span style="color:#ffd43b;font-weight:600">👀 Importante manter monitoramento</span>
+        </div>
     </div>""", unsafe_allow_html=True)
+
 with r2c2:
-    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
-        <div class="metric-label" style="color:#4dabf7">⏳ Em Aprovação (B)</div>
-        <div class="metric-value" style="color:#4dabf7;font-size:2rem">{em_aprovacao}</div>
-        <div style="font-size:0.75rem;color:#4dabf7;margin-top:4px;opacity:0.8">{pct_aprov_str} do total de pendências</div>
-    </div>""", unsafe_allow_html=True)
-with r2c3:
-    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #4dabf7">
-        <div class="metric-label" style="color:#4dabf7">💰 Valor Vencido Em Aprovação</div>
-        <div class="metric-value" style="color:#4dabf7;font-size:1.1rem">{format_brl(valor_em_aprovacao)}</div>
-        <div style="font-size:0.75rem;color:#4dabf7;margin-top:4px;opacity:0.8">vencidos aguardando aprovação (B)</div>
-    </div>""", unsafe_allow_html=True)
-with r2c4:
-    st.markdown(f"""<div class="metric-card" style="border:1.5px solid #ffd43b">
-        <div class="metric-label" style="color:#ffd43b">⚠️ Sem Responsável Identificado</div>
-        <div class="metric-value" style="color:#ffd43b;font-size:2rem">{n_pend_ident}</div>
-        <div style="font-size:0.75rem;color:#ffd43b;margin-top:4px;opacity:0.8">{format_brl(valor_pend_ident)} — requer atribuição</div>
+    st.markdown(f"""<div class="big-card" style="border:1.5px solid #4dabf7;background:linear-gradient(135deg,#0f1a2e,#152038)">
+        <div class="label" style="color:#4dabf7">🛡️ Governança</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:10px;text-align:left;padding:0 4px">
+            <div>
+                <div style="font-size:0.7rem;color:#8892a4;text-transform:uppercase;letter-spacing:1px">⚠️ Sem responsável</div>
+                <div style="font-size:1.6rem;font-weight:700;color:#ffd43b;line-height:1.1;margin-top:4px">{n_pend_ident}</div>
+                <div style="font-size:0.72rem;color:#ffd43b;opacity:0.7">{format_brl(valor_pend_ident)}</div>
+            </div>
+            <div>
+                <div style="font-size:0.7rem;color:#8892a4;text-transform:uppercase;letter-spacing:1px">🕓 Em aprovação</div>
+                <div style="font-size:1.6rem;font-weight:700;color:#4dabf7;line-height:1.1;margin-top:4px">{em_aprovacao}</div>
+                <div style="font-size:0.72rem;color:#4dabf7;opacity:0.7">{fmt_pct(em_aprovacao, total_itens)} do total</div>
+            </div>
+            <div>
+                <div style="font-size:0.7rem;color:#8892a4;text-transform:uppercase;letter-spacing:1px">💰 Vencido em aprov.</div>
+                <div style="font-size:1.2rem;font-weight:700;color:#ff8c42;line-height:1.1;margin-top:8px">{format_brl(valor_em_aprovacao)}</div>
+                <div style="font-size:0.72rem;color:#ff8c42;opacity:0.7">aguardando aprovação</div>
+            </div>
+        </div>
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -700,7 +752,8 @@ def montar_segmentos(base, group_col, agg_col=None):
     Monta dataframe com segmentos mutuamente exclusivos.
     Se agg_col for None: agrega por quantidade.
     Se agg_col='Valor': agrega por soma do valor.
-    Prioridade: Vencido > Entrega enc. > Com Just > Normal
+    Prioridade: Com Just > Vencido > Entrega enc. > Normal
+    (justificativa tira status de vencido)
     """
     pcs_j = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
 
@@ -708,10 +761,11 @@ def montar_segmentos(base, group_col, agg_col=None):
     rows = []
     for g in grupos:
         rows_g = base[base[group_col] == g]
-        venc_m = rows_g['Vencimento'] < agora_kpi if 'Vencimento' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
-        entr_m = (rows_g['Dt Entrega PC'] < agora_kpi) & ~venc_m if 'Dt Entrega PC' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
-        just_m = rows_g['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) & ~venc_m & ~entr_m if 'Nº PC' in rows_g.columns and pcs_j else pd.Series([False]*len(rows_g), index=rows_g.index)
-        norm_m = ~venc_m & ~entr_m & ~just_m
+        # Justificativa tem prioridade máxima
+        just_m = rows_g['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) if 'Nº PC' in rows_g.columns and pcs_j else pd.Series([False]*len(rows_g), index=rows_g.index)
+        venc_m = (rows_g['Vencimento'] < agora_kpi) & ~just_m if 'Vencimento' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
+        entr_m = (rows_g['Dt Entrega PC'] < agora_kpi) & ~just_m & ~venc_m if 'Dt Entrega PC' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
+        norm_m = ~just_m & ~venc_m & ~entr_m
 
         if agg_col and agg_col in rows_g.columns:
             rows.append({
