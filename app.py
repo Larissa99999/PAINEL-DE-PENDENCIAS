@@ -581,7 +581,7 @@ st.markdown("""<style>
 .big-card.neutral  { border: 1.5px solid rgba(255,255,255,0.08); }
 </style>""", unsafe_allow_html=True)
 
-r1c1, r1c2, r1c3 = st.columns(3)
+r1c1, r1c2 = st.columns(2)
 with r1c1:
     st.markdown(f"""<div class="big-card critical">
         <div class="label">🔴 Vencido Sem Justificativa</div>
@@ -595,26 +595,16 @@ with r1c1:
     </div>""", unsafe_allow_html=True)
 
 with r1c2:
-    st.markdown(f"""<div class="big-card" style="border:1.5px solid rgba(255,140,66,0.5);background:linear-gradient(135deg,#2a1800,#3a2000)">
-        <div class="label">🟠 Vencido Com Justificativa</div>
-        <div class="value" style="color:#ff8c42">{n_venc_com_just}
-            <span class="pct" style="color:#ffa570">({fmt_pct(n_venc_com_just, total_itens)})</span>
-        </div>
-        <div class="sub">
-            Valor: <strong style="color:#ff8c42">{format_brl(val_venc_com)}</strong><br>
-            Possui prazo de resolução definido
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-with r1c3:
+    total_com_just = n_venc_com_just + n_em_dia
+    val_com_just   = val_venc_com + (df_filtered[df_filtered['Situação'] == 'Em Dia (Justificado)']['Valor'].sum() if 'Situação' in df_filtered.columns and 'Valor' in df_filtered.columns else 0)
     st.markdown(f"""<div class="big-card success">
-        <div class="label">🟢 Em Dia / Justificado</div>
-        <div class="value" style="color:#51cf66">{n_em_dia}
-            <span class="pct" style="color:#80e89a">({fmt_pct(n_em_dia, total_itens)})</span>
+        <div class="label">🟢 Total com Justificativa</div>
+        <div class="value" style="color:#51cf66">{total_com_just}
+            <span class="pct" style="color:#80e89a">({fmt_pct(total_com_just, total_itens)})</span>
         </div>
         <div class="sub">
-            Prazo ok e justificativa registrada<br>
-            <strong>{n_entrega_enc}</strong> com entrega encerrada
+            Valor: <strong style="color:#51cf66">{format_brl(val_com_just)}</strong><br>
+            Processos com justificativa preenchida
         </div>
     </div>""", unsafe_allow_html=True)
 
