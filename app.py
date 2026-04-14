@@ -408,6 +408,7 @@ with st.sidebar:
 
     # ── Calcula situação de cada processo ──
     agora_sit = pd.Timestamp.now()
+    hoje_sit = agora_sit.normalize()
     just_df_sit = load_justificativas()
 
     def _nk(s):
@@ -419,20 +420,22 @@ with st.sidebar:
         s = ' '.join(s.split())
         return s if s not in ['', 'NAN', 'NONE', '—'] else ''
 
-    # Conjuntos (chave, fornecedor) para match com fornecedor
-    pcs_just_sit   = set()
-    notas_just_sit = set()
+    # Dicionários (chave, fornecedor) → prazo de resolução, para validar expiração
+    pcs_just_sit   = {}   # (pc, forn) → prazo (pd.Timestamp ou None)
+    notas_just_sit = {}   # (nota, forn) → prazo
     if len(just_df_sit) > 0:
         for _, r in just_df_sit.iterrows():
             forn = _nf(r.get('Fornecedor', ''))
             if not forn:
                 continue
+            prazo_raw = r.get('Prazo_Resolucao', '')
+            prazo = parse_data(prazo_raw)
             pc_k = _nk(r.get('Nº_PC', ''))
             nota_k = _nk(r.get('Nº_Nota', ''))
             if pc_k:
-                pcs_just_sit.add((pc_k, forn))
+                pcs_just_sit[(pc_k, forn)] = prazo
             if nota_k:
-                notas_just_sit.add((nota_k, forn))
+                notas_just_sit[(nota_k, forn)] = prazo
 
     def calc_situacao(row):
         # Se está pendente de identificação de responsável, essa é a situação prioritária
@@ -445,22 +448,40 @@ with st.sidebar:
         forn = _nf(row.get('Fornecedor', ''))
         pc = _nk(row.get('Nº PC', ''))
         nota = _nk(row.get('Nº Nota', ''))
+
+        # Verifica se tem justificativa E se o prazo ainda não expirou
         tem_just = False
+        just_expirada = False
         if forn:
+            prazo = None
             if pc and (pc, forn) in pcs_just_sit:
+                prazo = pcs_just_sit[(pc, forn)]
                 tem_just = True
             elif nota and (nota, forn) in notas_just_sit:
+                prazo = notas_just_sit[(nota, forn)]
                 tem_just = True
+
+            # Se o prazo passou, justificativa não vale mais
+            if tem_just and pd.notna(prazo) and prazo < hoje_sit:
+                just_expirada = True
+                tem_just = False
+
         if pd.notna(venc) and venc < agora_sit:
             if tem_just:
                 return 'Vencido c/ Justificativa'
+            if just_expirada:
+                return 'Vencido — Justificativa Expirada'
             return 'Vencido s/ Justificativa'
         if 'Dt Entrega PC' in row.index:
             entr = parse_data(row.get('Dt Entrega PC', pd.NaT))
             if pd.notna(entr) and entr < agora_sit:
+                if just_expirada:
+                    return 'Vencido — Justificativa Expirada'
                 return 'Entrega Encerrada'
         if tem_just:
             return 'Em Dia (Justificado)'
+        if just_expirada:
+            return 'Vencido — Justificativa Expirada'
         return 'Pendente'
 
     df['Situação'] = df.apply(calc_situacao, axis=1)
@@ -477,6 +498,7 @@ with st.sidebar:
     sit_opts = ["Todas"] + [
         'Pendente Identificação Responsável',
         'Vencido s/ Justificativa',
+        'Vencido — Justificativa Expirada',
         'Vencido c/ Justificativa',
         'Entrega Encerrada',
         'Em Dia (Justificado)',
@@ -591,7 +613,8 @@ if 'Dt Entrega PC' in df_filtered.columns:
 
 just_df = load_justificativas()
 
-# ── Lógica central: linha tem justificativa se PC+Fornecedor OU Nota+Fornecedor bater ──
+# ── Lógica central: linha tem justificativa VÁLIDA se PC+Fornecedor OU Nota+Fornecedor bater
+#    E o prazo de resolução não tiver expirado ──
 def _norm_key(s):
     s = str(s).strip().lstrip('0')
     return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
@@ -602,32 +625,41 @@ def _norm_forn(s):
     s = ' '.join(s.split())
     return s if s not in ['', 'NAN', 'NONE', '—'] else ''
 
-# Constrói conjunto de chaves compostas: (pc, fornecedor) e (nota, fornecedor)
-pcs_com_just = set()    # tuplas (pc_normalizado, fornecedor_normalizado)
-notas_com_just = set()  # tuplas (nota_normalizada, fornecedor_normalizado)
+# Dicionários (chave, fornecedor) → prazo de resolução
+hoje_flag = pd.Timestamp.now().normalize()
+pcs_com_just = {}
+notas_com_just = {}
 if len(just_df) > 0:
     for _, r in just_df.iterrows():
         forn = _norm_forn(r.get('Fornecedor', ''))
         if not forn:
             continue
+        prazo = parse_data(r.get('Prazo_Resolucao', ''))
         pc_k = _norm_key(r.get('Nº_PC', ''))
         nota_k = _norm_key(r.get('Nº_Nota', ''))
         if pc_k:
-            pcs_com_just.add((pc_k, forn))
+            pcs_com_just[(pc_k, forn)] = prazo
         if nota_k:
-            notas_com_just.add((nota_k, forn))
+            notas_com_just[(nota_k, forn)] = prazo
 
 def linha_tem_justificativa(row):
+    """Só retorna True se a justificativa existe E o prazo ainda não expirou."""
     forn = _norm_forn(row.get('Fornecedor', ''))
     if not forn:
         return False
     pc_k = _norm_key(row.get('Nº PC', ''))
     nota_k = _norm_key(row.get('Nº Nota', ''))
+    prazo = None
     if pc_k and (pc_k, forn) in pcs_com_just:
-        return True
-    if nota_k and (nota_k, forn) in notas_com_just:
-        return True
-    return False
+        prazo = pcs_com_just[(pc_k, forn)]
+    elif nota_k and (nota_k, forn) in notas_com_just:
+        prazo = notas_com_just[(nota_k, forn)]
+    else:
+        return False
+    # Se prazo não preenchido, considera válida; se preenchido, precisa estar no futuro
+    if pd.notna(prazo) and prazo < hoje_flag:
+        return False
+    return True
 
 # Aplica a flag no df_filtered como booleano puro
 if 'Fornecedor' in df_filtered.columns and ('Nº PC' in df_filtered.columns or 'Nº Nota' in df_filtered.columns):
@@ -1016,7 +1048,7 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace({'None':'','nan':'','NaT':''})
 
-show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Observacao','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
+show_cols = [c for c in ['Tipo','Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Chave Sefaz','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Observacao','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
 
 def fmt_data(x):
     """Exibe data no formato DD/MM/AAAA independentemente do formato de entrada."""
