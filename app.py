@@ -805,14 +805,22 @@ def criar_fig_segmentado(df_seg, group_col, titulo, eh_valor=False):
         ('Seg_Vencido', '#ff4d6a', 'Vencido'),
     ]:
         if eh_valor:
-            hover = f'<b>%{{y}}</b><br>{nome}: R$ %{{x:,.2f}}<extra></extra>'
+            # Pré-formata em BRL para usar no tooltip via customdata
+            customdata = [[format_brl(v)] for v in df_seg[seg]]
+            hover = f'<b>%{{y}}</b><br>{nome}: %{{customdata[0]}}<extra></extra>'
+            fig.add_trace(go.Bar(
+                y=df_seg[group_col], x=df_seg[seg], name=nome,
+                orientation='h', marker=dict(color=cor),
+                customdata=customdata,
+                hovertemplate=hover
+            ))
         else:
             hover = f'<b>%{{y}}</b><br>{nome}: %{{x}}<extra></extra>'
-        fig.add_trace(go.Bar(
-            y=df_seg[group_col], x=df_seg[seg], name=nome,
-            orientation='h', marker=dict(color=cor),
-            hovertemplate=hover
-        ))
+            fig.add_trace(go.Bar(
+                y=df_seg[group_col], x=df_seg[seg], name=nome,
+                orientation='h', marker=dict(color=cor),
+                hovertemplate=hover
+            ))
 
     # Anotações com TOTAL por fora da barra (à direita)
     if eh_valor:
