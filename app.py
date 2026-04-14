@@ -902,11 +902,25 @@ if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
     just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
     just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
     just_cols_main['Nº PC'] = just_cols_main['Nº PC'].astype(str).str.strip().str.lstrip('0')
+
+    # Remove justificativas com PC vazio para evitar match em cascata
+    just_cols_main = just_cols_main[~just_cols_main['Nº PC'].isin(['', 'nan', 'None', '—'])]
+
     df_filtered_merge = df_filtered.copy()
-    if 'Nº PC' in df_filtered_merge.columns:
+    if 'Nº PC' in df_filtered_merge.columns and len(just_cols_main) > 0:
         df_filtered_merge['Nº PC_norm'] = df_filtered_merge['Nº PC'].astype(str).str.strip().str.lstrip('0')
         just_cols_main = just_cols_main.rename(columns={'Nº PC': 'Nº PC_norm'})
-        df_display = df_filtered_merge.merge(just_cols_main, on='Nº PC_norm', how='left').drop(columns=['Nº PC_norm'])
+
+        # Só faz match para linhas com PC preenchido (ignora os vazios)
+        mask_tem_pc = ~df_filtered_merge['Nº PC_norm'].isin(['', 'nan', 'None', '—'])
+        df_com_pc = df_filtered_merge[mask_tem_pc].merge(just_cols_main, on='Nº PC_norm', how='left')
+        df_sem_pc = df_filtered_merge[~mask_tem_pc].copy()
+        # Garante colunas vazias para os sem PC
+        for c in ['Justificativa', 'Prazo_Resolucao', 'Observacao', 'Responsavel']:
+            if c not in df_sem_pc.columns:
+                df_sem_pc[c] = ''
+
+        df_display = pd.concat([df_com_pc, df_sem_pc], ignore_index=False).sort_index().drop(columns=['Nº PC_norm'])
     else:
         df_display = df_filtered.copy()
 else:
@@ -916,7 +930,7 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace({'None':'','nan':'','NaT':''})
 
-show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
+show_cols = [c for c in ['Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Observacao','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
 
 def fmt_data(x):
     """Exibe data no formato DD/MM/AAAA independentemente do formato de entrada."""
