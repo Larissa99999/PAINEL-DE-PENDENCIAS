@@ -410,8 +410,17 @@ with st.sidebar:
     agora_sit = pd.Timestamp.now()
     just_df_sit = load_justificativas()
     pcs_just_sit = set()
-    if len(just_df_sit) > 0 and 'Nº_PC' in just_df_sit.columns:
-        pcs_just_sit = set(just_df_sit['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'}
+    notas_just_sit = set()
+
+    def _nk(s):
+        s = str(s).strip().lstrip('0')
+        return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
+
+    if len(just_df_sit) > 0:
+        if 'Nº_PC' in just_df_sit.columns:
+            pcs_just_sit = set(just_df_sit['Nº_PC'].apply(_nk).values) - {''}
+        if 'Nº_Nota' in just_df_sit.columns:
+            notas_just_sit = set(just_df_sit['Nº_Nota'].apply(_nk).values) - {''}
 
     def calc_situacao(row):
         # Se está pendente de identificação de responsável, essa é a situação prioritária
@@ -421,8 +430,9 @@ with st.sidebar:
             return 'Pendente Identificação Responsável'
 
         venc = parse_data(row.get('Vencimento', pd.NaT))
-        pc = str(row.get('Nº PC', '')).strip().lstrip('0')
-        tem_just = pc in pcs_just_sit and pc != ''
+        pc = _nk(row.get('Nº PC', ''))
+        nota = _nk(row.get('Nº Nota', ''))
+        tem_just = (pc and pc in pcs_just_sit) or (nota and nota in notas_just_sit)
         if pd.notna(venc) and venc < agora_sit:
             if tem_just:
                 return 'Vencido c/ Justificativa'
@@ -562,12 +572,33 @@ if 'Dt Entrega PC' in df_filtered.columns:
     entrega_enc = len(df_filtered[df_filtered['Dt Entrega PC'] < agora_now])
 
 just_df = load_justificativas()
-if len(just_df) > 0 and 'Nº_PC' in just_df.columns and 'Nº PC' in df_filtered.columns:
-    pcs_com_just = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'', 'nan', 'None', '—'}
-    df_pcs = df_filtered['Nº PC'].astype(str).str.strip().str.lstrip('0')
-    com_justificativa = len(df_filtered[df_pcs.isin(pcs_com_just)]) if pcs_com_just else 0
+
+# ── Lógica central: linha tem justificativa se bater por Nº PC OU Nº Nota ──
+def _norm_key(s):
+    s = str(s).strip().lstrip('0')
+    return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
+
+pcs_com_just = set()
+notas_com_just = set()
+if len(just_df) > 0:
+    if 'Nº_PC' in just_df.columns:
+        pcs_com_just = set(just_df['Nº_PC'].apply(_norm_key).values) - {''}
+    if 'Nº_Nota' in just_df.columns:
+        notas_com_just = set(just_df['Nº_Nota'].apply(_norm_key).values) - {''}
+
+def linha_tem_justificativa(row):
+    pc_k = _norm_key(row.get('Nº PC', ''))
+    nota_k = _norm_key(row.get('Nº Nota', ''))
+    return (pc_k and pc_k in pcs_com_just) or (nota_k and nota_k in notas_com_just)
+
+# Aplica a flag no df_filtered para uso posterior
+if 'Nº PC' in df_filtered.columns or 'Nº Nota' in df_filtered.columns:
+    df_filtered['_tem_just'] = df_filtered.apply(linha_tem_justificativa, axis=1)
+    com_justificativa = int(df_filtered['_tem_just'].sum())
 else:
+    df_filtered['_tem_just'] = False
     com_justificativa = 0
+
 sem_justificativa = total_itens - com_justificativa
 # ── Helpers de formatação ──
 def fmt_pct(num, den):
@@ -761,14 +792,15 @@ def montar_segmentos(base, group_col, agg_col=None):
     Prioridade: Com Just > Vencido > Entrega enc. > Normal
     (justificativa tira status de vencido)
     """
-    pcs_j = set(just_df['Nº_PC'].astype(str).str.strip().str.lstrip('0').values) - {'','nan','None','—'} if len(just_df)>0 and 'Nº_PC' in just_df.columns else set()
-
     grupos = base[group_col].dropna().unique()
     rows = []
     for g in grupos:
         rows_g = base[base[group_col] == g]
-        # Justificativa tem prioridade máxima
-        just_m = rows_g['Nº PC'].astype(str).str.strip().str.lstrip('0').isin(pcs_j) if 'Nº PC' in rows_g.columns and pcs_j else pd.Series([False]*len(rows_g), index=rows_g.index)
+        # Justificativa tem prioridade máxima — usa flag pré-computada
+        if '_tem_just' in rows_g.columns:
+            just_m = rows_g['_tem_just'].fillna(False)
+        else:
+            just_m = pd.Series([False]*len(rows_g), index=rows_g.index)
         venc_m = (rows_g['Vencimento'] < agora_kpi) & ~just_m if 'Vencimento' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
         entr_m = (rows_g['Dt Entrega PC'] < agora_kpi) & ~just_m & ~venc_m if 'Dt Entrega PC' in rows_g.columns else pd.Series([False]*len(rows_g), index=rows_g.index)
         norm_m = ~just_m & ~venc_m & ~entr_m
@@ -898,31 +930,49 @@ if 'Comprador' in df_filtered.columns:
 # TABELAS SEPARADAS POR PRIORIDADE
 # ══════════════════════════════════════════════════════════════════════
 just_df = load_justificativas()
+
+def _norm(s):
+    """Normaliza chave: remove espaços, 'nan', 'None', '—' e zeros à esquerda."""
+    s = str(s).strip().lstrip('0')
+    return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
+
 if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
-    just_cols_main = just_df[['Nº_PC','Justificativa','Prazo_Resolucao','Observacao','Responsavel']].copy()
-    just_cols_main = just_cols_main.rename(columns={'Nº_PC': 'Nº PC'})
-    just_cols_main['Nº PC'] = just_cols_main['Nº PC'].astype(str).str.strip().str.lstrip('0')
+    # Prepara tabela de justificativas com chaves normalizadas para PC e Nota
+    just_clean = just_df.copy()
+    just_clean['_pc_key']   = just_clean['Nº_PC'].apply(_norm) if 'Nº_PC' in just_clean.columns else ''
+    just_clean['_nota_key'] = just_clean['Nº_Nota'].apply(_norm) if 'Nº_Nota' in just_clean.columns else ''
 
-    # Remove justificativas com PC vazio para evitar match em cascata
-    just_cols_main = just_cols_main[~just_cols_main['Nº PC'].isin(['', 'nan', 'None', '—'])]
+    # Dois dicionários de lookup: um por PC, outro por Nota Fiscal
+    cols_to_bring = ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']
+    lookup_pc = {}
+    lookup_nota = {}
+    for _, r in just_clean.iterrows():
+        data = {c: r.get(c, '') for c in cols_to_bring}
+        if r['_pc_key']:
+            lookup_pc[r['_pc_key']] = data
+        if r['_nota_key']:
+            lookup_nota[r['_nota_key']] = data
 
-    df_filtered_merge = df_filtered.copy()
-    if 'Nº PC' in df_filtered_merge.columns and len(just_cols_main) > 0:
-        df_filtered_merge['Nº PC_norm'] = df_filtered_merge['Nº PC'].astype(str).str.strip().str.lstrip('0')
-        just_cols_main = just_cols_main.rename(columns={'Nº PC': 'Nº PC_norm'})
+    df_display = df_filtered.copy()
+    # Inicializa colunas vazias
+    for c in cols_to_bring:
+        df_display[c] = ''
 
-        # Só faz match para linhas com PC preenchido (ignora os vazios)
-        mask_tem_pc = ~df_filtered_merge['Nº PC_norm'].isin(['', 'nan', 'None', '—'])
-        df_com_pc = df_filtered_merge[mask_tem_pc].merge(just_cols_main, on='Nº PC_norm', how='left')
-        df_sem_pc = df_filtered_merge[~mask_tem_pc].copy()
-        # Garante colunas vazias para os sem PC
-        for c in ['Justificativa', 'Prazo_Resolucao', 'Observacao', 'Responsavel']:
-            if c not in df_sem_pc.columns:
-                df_sem_pc[c] = ''
+    # Faz lookup linha a linha: tenta por PC primeiro, depois por Nota
+    def _buscar_just(row):
+        pc_key = _norm(row.get('Nº PC', ''))
+        nota_key = _norm(row.get('Nº Nota', ''))
+        if pc_key and pc_key in lookup_pc:
+            return lookup_pc[pc_key]
+        if nota_key and nota_key in lookup_nota:
+            return lookup_nota[nota_key]
+        return None
 
-        df_display = pd.concat([df_com_pc, df_sem_pc], ignore_index=False).sort_index().drop(columns=['Nº PC_norm'])
-    else:
-        df_display = df_filtered.copy()
+    for idx, row in df_display.iterrows():
+        match = _buscar_just(row)
+        if match:
+            for c in cols_to_bring:
+                df_display.at[idx, c] = match.get(c, '')
 else:
     df_display = df_filtered.copy()
 
