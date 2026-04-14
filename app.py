@@ -232,7 +232,7 @@ def save_justificativa(row_id, justificativa, observacao, prazo, responsavel="",
 
 
 def parse_data(v):
-    """Converte qualquer formato para datetime: texto 'DD/MM/AAAA', datetime, date ou Timestamp."""
+    """Converte qualquer formato para datetime: texto BR ('DD/MM/AAAA'), ISO ('YYYY-MM-DD'), datetime, date ou Timestamp."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return pd.NaT
     if isinstance(v, pd.Timestamp):
@@ -244,11 +244,17 @@ def parse_data(v):
     s = str(v).strip()
     if s in ["", "—", "-", "nan", "NaT", "None"]:
         return pd.NaT
-    # Remove prefixos tipo "VENCIDA 3d" ou "3 dias" mantendo só a data
+    # Remove prefixos tipo "VENCIDA 3d" ou "3 dias" mantendo só a data BR
     import re
     m = re.search(r'(\d{2}/\d{2}/\d{4})', s)
     if m:
-        s = m.group(1)
+        # Formato brasileiro DD/MM/YYYY explícito
+        return pd.to_datetime(m.group(1), format='%d/%m/%Y', errors='coerce')
+    # Formato ISO YYYY-MM-DD (vindo de Excel datetime convertido para string)
+    m_iso = re.search(r'(\d{4}-\d{2}-\d{2})', s)
+    if m_iso:
+        return pd.to_datetime(m_iso.group(1), format='%Y-%m-%d', errors='coerce')
+    # Fallback: tenta parse genérico com dayfirst
     return pd.to_datetime(s, dayfirst=True, errors='coerce')
 
 def parse_valor(v):
@@ -474,8 +480,8 @@ with st.sidebar:
             emiss_min = emiss_validas.min()
             emiss_max = emiss_validas.max()
             from datetime import date as date_type
-            emiss_de = st.date_input("De", value=emiss_min.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_de")
-            emiss_ate = st.date_input("Até", value=emiss_max.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_ate")
+            emiss_de = st.date_input("De", value=emiss_min.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_de", format="DD/MM/YYYY")
+            emiss_ate = st.date_input("Até", value=emiss_max.date(), min_value=emiss_min.date(), max_value=emiss_max.date(), key="emiss_ate", format="DD/MM/YYYY")
         else:
             emiss_de = None
             emiss_ate = None
@@ -788,8 +794,10 @@ def montar_segmentos(base, group_col, agg_col=None):
     return pd.DataFrame(rows).sort_values('Total', ascending=True)
 
 def criar_fig_segmentado(df_seg, group_col, titulo, eh_valor=False):
-    """Cria gráfico de barras horizontais segmentado."""
+    """Cria gráfico de barras horizontais segmentado com total visível fora da barra."""
     fig = go.Figure()
+
+    # Segmentos coloridos (sem texto interno para evitar ilegibilidade)
     for seg, cor, nome in [
         ('Seg_Normal',  '#4a5568', 'Pendente normal'),
         ('Seg_Just',    '#51cf66', 'Com justificativa'),
@@ -797,25 +805,45 @@ def criar_fig_segmentado(df_seg, group_col, titulo, eh_valor=False):
         ('Seg_Vencido', '#ff4d6a', 'Vencido'),
     ]:
         if eh_valor:
-            textos = [format_brl(v) if v > 100 else '' for v in df_seg[seg]]
             hover = f'<b>%{{y}}</b><br>{nome}: R$ %{{x:,.2f}}<extra></extra>'
         else:
-            textos = [f"{int(v)}" if v > 0 else '' for v in df_seg[seg]]
             hover = f'<b>%{{y}}</b><br>{nome}: %{{x}}<extra></extra>'
         fig.add_trace(go.Bar(
             y=df_seg[group_col], x=df_seg[seg], name=nome,
             orientation='h', marker=dict(color=cor),
-            text=textos, textposition='inside',
-            textfont=dict(size=10, color='white'),
             hovertemplate=hover
         ))
+
+    # Anotações com TOTAL por fora da barra (à direita)
+    if eh_valor:
+        textos_totais = [format_brl(v) for v in df_seg['Total']]
+    else:
+        textos_totais = [f"{int(v)}" for v in df_seg['Total']]
+
+    # Adiciona texto do total no final de cada barra (posição x = Total, com padding)
+    x_max = df_seg['Total'].max() if len(df_seg) > 0 else 0
+    for i, (categoria, total, txt) in enumerate(zip(df_seg[group_col], df_seg['Total'], textos_totais)):
+        fig.add_annotation(
+            x=total, y=categoria,
+            text=f"<b>{txt}</b>",
+            showarrow=False,
+            xanchor='left', yanchor='middle',
+            xshift=8,
+            font=dict(size=12, color='#e0e0e0')
+        )
+
     fig.update_layout(**PLOT_LAYOUT)
     fig.update_layout(
         barmode='stack', title=titulo,
         height=max(280, len(df_seg) * 55 + 60),
-        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)'),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.05)',
+            # Adiciona espaço à direita para mostrar o total
+            range=[0, x_max * 1.25] if x_max > 0 else None
+        ),
         yaxis=dict(showgrid=False, automargin=True),
-        margin=dict(l=10, r=20, t=40, b=80),
+        margin=dict(l=10, r=40, t=40, b=80),
         legend=dict(orientation='h', y=-0.22, font=dict(size=11))
     )
     return fig
@@ -1026,7 +1054,7 @@ with st.form("form_justificativa", clear_on_submit=True):
         responsavel = st.text_input("Seu nome (quem está preenchendo)", placeholder="Ex: João Silva")
         sel_pendencia = st.selectbox("Selecione a Pendência", ["— Selecione —"] + opcoes_pend)
         sel_justificativa = st.selectbox("Motivo da Pendência", OPCOES_JUSTIFICATIVA)
-        prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today())
+        prazo_resolucao = st.date_input("📅 Prazo previsto p/ resolução/entrega *", value=None, min_value=date.today(), format="DD/MM/YYYY")
     with col_form2:
         observacao = st.text_area("Observação adicional", height=160,
                                   placeholder="Descreva detalhes adicionais sobre esta pendência...")
