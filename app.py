@@ -409,18 +409,30 @@ with st.sidebar:
     # ── Calcula situação de cada processo ──
     agora_sit = pd.Timestamp.now()
     just_df_sit = load_justificativas()
-    pcs_just_sit = set()
-    notas_just_sit = set()
 
     def _nk(s):
         s = str(s).strip().lstrip('0')
         return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
 
+    def _nf(s):
+        s = str(s).strip().upper()
+        s = ' '.join(s.split())
+        return s if s not in ['', 'NAN', 'NONE', '—'] else ''
+
+    # Conjuntos (chave, fornecedor) para match com fornecedor
+    pcs_just_sit   = set()
+    notas_just_sit = set()
     if len(just_df_sit) > 0:
-        if 'Nº_PC' in just_df_sit.columns:
-            pcs_just_sit = set(just_df_sit['Nº_PC'].apply(_nk).values) - {''}
-        if 'Nº_Nota' in just_df_sit.columns:
-            notas_just_sit = set(just_df_sit['Nº_Nota'].apply(_nk).values) - {''}
+        for _, r in just_df_sit.iterrows():
+            forn = _nf(r.get('Fornecedor', ''))
+            if not forn:
+                continue
+            pc_k = _nk(r.get('Nº_PC', ''))
+            nota_k = _nk(r.get('Nº_Nota', ''))
+            if pc_k:
+                pcs_just_sit.add((pc_k, forn))
+            if nota_k:
+                notas_just_sit.add((nota_k, forn))
 
     def calc_situacao(row):
         # Se está pendente de identificação de responsável, essa é a situação prioritária
@@ -430,9 +442,15 @@ with st.sidebar:
             return 'Pendente Identificação Responsável'
 
         venc = parse_data(row.get('Vencimento', pd.NaT))
+        forn = _nf(row.get('Fornecedor', ''))
         pc = _nk(row.get('Nº PC', ''))
         nota = _nk(row.get('Nº Nota', ''))
-        tem_just = (pc and pc in pcs_just_sit) or (nota and nota in notas_just_sit)
+        tem_just = False
+        if forn:
+            if pc and (pc, forn) in pcs_just_sit:
+                tem_just = True
+            elif nota and (nota, forn) in notas_just_sit:
+                tem_just = True
         if pd.notna(venc) and venc < agora_sit:
             if tem_just:
                 return 'Vencido c/ Justificativa'
@@ -573,28 +591,48 @@ if 'Dt Entrega PC' in df_filtered.columns:
 
 just_df = load_justificativas()
 
-# ── Lógica central: linha tem justificativa se bater por Nº PC OU Nº Nota ──
+# ── Lógica central: linha tem justificativa se PC+Fornecedor OU Nota+Fornecedor bater ──
 def _norm_key(s):
     s = str(s).strip().lstrip('0')
     return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
 
-pcs_com_just = set()
-notas_com_just = set()
+def _norm_forn(s):
+    """Normaliza fornecedor: upper + strip + remove múltiplos espaços."""
+    s = str(s).strip().upper()
+    s = ' '.join(s.split())
+    return s if s not in ['', 'NAN', 'NONE', '—'] else ''
+
+# Constrói conjunto de chaves compostas: (pc, fornecedor) e (nota, fornecedor)
+pcs_com_just = set()    # tuplas (pc_normalizado, fornecedor_normalizado)
+notas_com_just = set()  # tuplas (nota_normalizada, fornecedor_normalizado)
 if len(just_df) > 0:
-    if 'Nº_PC' in just_df.columns:
-        pcs_com_just = set(just_df['Nº_PC'].apply(_norm_key).values) - {''}
-    if 'Nº_Nota' in just_df.columns:
-        notas_com_just = set(just_df['Nº_Nota'].apply(_norm_key).values) - {''}
+    for _, r in just_df.iterrows():
+        forn = _norm_forn(r.get('Fornecedor', ''))
+        if not forn:
+            continue
+        pc_k = _norm_key(r.get('Nº_PC', ''))
+        nota_k = _norm_key(r.get('Nº_Nota', ''))
+        if pc_k:
+            pcs_com_just.add((pc_k, forn))
+        if nota_k:
+            notas_com_just.add((nota_k, forn))
 
 def linha_tem_justificativa(row):
+    forn = _norm_forn(row.get('Fornecedor', ''))
+    if not forn:
+        return False
     pc_k = _norm_key(row.get('Nº PC', ''))
     nota_k = _norm_key(row.get('Nº Nota', ''))
-    return (pc_k and pc_k in pcs_com_just) or (nota_k and nota_k in notas_com_just)
+    if pc_k and (pc_k, forn) in pcs_com_just:
+        return True
+    if nota_k and (nota_k, forn) in notas_com_just:
+        return True
+    return False
 
-# Aplica a flag no df_filtered para uso posterior
-if 'Nº PC' in df_filtered.columns or 'Nº Nota' in df_filtered.columns:
-    df_filtered['_tem_just'] = df_filtered.apply(linha_tem_justificativa, axis=1)
-    com_justificativa = int(df_filtered['_tem_just'].sum())
+# Aplica a flag no df_filtered como booleano puro
+if 'Fornecedor' in df_filtered.columns and ('Nº PC' in df_filtered.columns or 'Nº Nota' in df_filtered.columns):
+    df_filtered['_tem_just'] = df_filtered.apply(linha_tem_justificativa, axis=1).astype(bool)
+    com_justificativa = int(df_filtered['_tem_just'].astype(int).sum())
 else:
     df_filtered['_tem_just'] = False
     com_justificativa = 0
@@ -931,41 +969,39 @@ if 'Comprador' in df_filtered.columns:
 # ══════════════════════════════════════════════════════════════════════
 just_df = load_justificativas()
 
-def _norm(s):
-    """Normaliza chave: remove espaços, 'nan', 'None', '—' e zeros à esquerda."""
-    s = str(s).strip().lstrip('0')
-    return s if s not in ['', 'nan', 'None', '—', 'NaN'] else ''
-
 if len(just_df) > 0 and 'Nº_PC' in just_df.columns:
-    # Prepara tabela de justificativas com chaves normalizadas para PC e Nota
-    just_clean = just_df.copy()
-    just_clean['_pc_key']   = just_clean['Nº_PC'].apply(_norm) if 'Nº_PC' in just_clean.columns else ''
-    just_clean['_nota_key'] = just_clean['Nº_Nota'].apply(_norm) if 'Nº_Nota' in just_clean.columns else ''
-
-    # Dois dicionários de lookup: um por PC, outro por Nota Fiscal
+    # Dois dicionários de lookup: chave composta (identificador, fornecedor)
     cols_to_bring = ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']
     lookup_pc = {}
     lookup_nota = {}
-    for _, r in just_clean.iterrows():
+    for _, r in just_df.iterrows():
+        forn = _norm_forn(r.get('Fornecedor', ''))
+        if not forn:
+            continue
         data = {c: r.get(c, '') for c in cols_to_bring}
-        if r['_pc_key']:
-            lookup_pc[r['_pc_key']] = data
-        if r['_nota_key']:
-            lookup_nota[r['_nota_key']] = data
+        pc_k = _norm_key(r.get('Nº_PC', ''))
+        nota_k = _norm_key(r.get('Nº_Nota', ''))
+        if pc_k:
+            lookup_pc[(pc_k, forn)] = data
+        if nota_k:
+            lookup_nota[(nota_k, forn)] = data
 
     df_display = df_filtered.copy()
     # Inicializa colunas vazias
     for c in cols_to_bring:
         df_display[c] = ''
 
-    # Faz lookup linha a linha: tenta por PC primeiro, depois por Nota
+    # Faz lookup linha a linha: tenta por (PC, fornecedor), depois por (Nota, fornecedor)
     def _buscar_just(row):
-        pc_key = _norm(row.get('Nº PC', ''))
-        nota_key = _norm(row.get('Nº Nota', ''))
-        if pc_key and pc_key in lookup_pc:
-            return lookup_pc[pc_key]
-        if nota_key and nota_key in lookup_nota:
-            return lookup_nota[nota_key]
+        forn = _norm_forn(row.get('Fornecedor', ''))
+        if not forn:
+            return None
+        pc_key = _norm_key(row.get('Nº PC', ''))
+        nota_key = _norm_key(row.get('Nº Nota', ''))
+        if pc_key and (pc_key, forn) in lookup_pc:
+            return lookup_pc[(pc_key, forn)]
+        if nota_key and (nota_key, forn) in lookup_nota:
+            return lookup_nota[(nota_key, forn)]
         return None
 
     for idx, row in df_display.iterrows():
