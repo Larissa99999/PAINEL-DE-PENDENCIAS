@@ -303,6 +303,7 @@ def load_data(file):
         elif "solicitante" in cl: col_map[c] = "Solicitante"
         elif "status sf" in cl: col_map[c] = "Status"
         elif cl == "status manual": col_map[c] = "Status Manual"
+        elif "filial" in cl and ("nf" in cl or "nota" in cl): col_map[c] = "Filial NF"
         elif "filial" in cl: col_map[c] = "Filial"
         elif cl == "dias": col_map[c] = "Dias"
         elif "pc" in cl and ("nº" in cl or "n°" in cl or "num" in cl or cl.startswith("nº")): col_map[c] = "Nº PC"
@@ -313,6 +314,8 @@ def load_data(file):
         elif "chave" in cl: col_map[c] = "Chave Sefaz"
         elif "nota" in cl and "nº" in cl.lower(): col_map[c] = "Nº Nota"
     df = df.rename(columns=col_map)
+    # Remove colunas duplicadas, mantendo apenas a primeira ocorrência
+    df = df.loc[:, ~df.columns.duplicated(keep='first')]
     if "Valor" in df.columns:
         df["Valor"] = df["Valor"].apply(parse_valor)
     # Conversão robusta de TODAS as colunas de data (aceita texto OU objeto date)
@@ -507,7 +510,10 @@ with st.sidebar:
     sel_situacao = st.selectbox("🏷️ Situação", sit_opts)
 
     if 'Filial' in df.columns:
-        filiais = ["Todas"] + sorted([x for x in df['Filial'].dropna().astype(str).unique().tolist() if x not in ['—','']])
+        filial_col = df['Filial']
+        if isinstance(filial_col, pd.DataFrame):
+            filial_col = filial_col.iloc[:, 0]
+        filiais = ["Todas"] + sorted([x for x in filial_col.dropna().astype(str).unique().tolist() if x not in ['—','']])
         sel_filial = st.selectbox("Filial", filiais)
     else:
         sel_filial = "Todas"
@@ -1048,7 +1054,7 @@ for col in ['Justificativa','Prazo_Resolucao','Observacao','Responsavel']:
     if col in df_display.columns:
         df_display[col] = df_display[col].fillna('').replace({'None':'','nan':'','NaT':''})
 
-show_cols = [c for c in ['Tipo','Comprador','Solicitante','Filial','Fornecedor','Nº PC','Nº Nota','Chave Sefaz','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Observacao','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
+show_cols = [c for c in ['Tipo','Comprador','Solicitante','Filial','Fornecedor','Nº PC','Filial NF','Nº Nota','Chave Sefaz','Controle','Situação','Dt Emissão','Dt Entrega PC','Vencimento','Valor','Justificativa','Observacao','Prazo_Resolucao','Responsavel'] if c in df_display.columns]
 
 def fmt_data(x):
     """Exibe data no formato DD/MM/AAAA independentemente do formato de entrada."""
